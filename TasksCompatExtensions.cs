@@ -11,7 +11,7 @@ namespace ConvoyBreakerCallout
 		/// Compatibility shim: allow using 3-argument FollowToOffsetFromEntity across different RPH versions.
 		/// Resolves to the available overload and supplies sensible default values for missing parameters.
 		/// </summary>
-		public static void FollowToOffsetFromEntity(this Tasks tasks, Entity targetEntity, Vector3 offset, float movementSpeed)
+		public static void FollowToOffsetFromEntity(this Rage.Tasks tasks, Entity targetEntity, Vector3 offset, float movementSpeed)
 		{
 			if (tasks == null) throw new ArgumentNullException(nameof(tasks));
 			if (targetEntity == null) throw new ArgumentNullException(nameof(targetEntity));
@@ -19,7 +19,7 @@ namespace ConvoyBreakerCallout
 			try
 			{
 				// Find instance methods named FollowToOffsetFromEntity
-				var candidateMethods = typeof(Tasks)
+				var candidateMethods = typeof(Rage.Tasks)
 					.GetMethods(BindingFlags.Public | BindingFlags.Instance)
 					.Where(m => m.Name == nameof(FollowToOffsetFromEntity))
 					.ToArray();
