@@ -44,7 +44,10 @@ local TACTICAL_CONFIG = {
     SMOKE_COOLDOWN = 15,            -- Cooldown between smoke deployments
     LIGHT_DISABLE_RANGE = 300,      -- Range to disable light sources
     WHISPER_RADIUS = 200,           -- Range for psychological operations
-    FLASH_RANGE = 150               -- Range for flashbang effects
+    FLASH_RANGE = 150,              -- Range for flashbang effects
+    WEAPON_RANGE = 500,             -- Maximum effective weapon range
+    ACCURACY_DECAY = 0.1,           -- Accuracy decay per shot
+    RECOVERY_TIME = 2.0             -- Time to recover accuracy
 }
 
 -- AI States
@@ -58,10 +61,21 @@ local AI_STATES = {
 }
 
 function ENT:Initialize()
-    self:SetModel("models/player/combine_super_soldier.mdl")
+    self:SetModel("models/splinter_cell_3/player/Sam_E.mdl")
     self:SetHealth(200)
     self:SetMaxHealth(200)
     self:SetCollisionBounds(Vector(-16, -16, 0), Vector(16, 16, 72))
+    
+    -- Set bodygroup for goggles
+    self:SetBodygroup(1, 1) -- Goggles bodygroup
+    
+    -- Initialize weapon
+    self.weaponModel = "models/weapons/w_fiveseven_ct.mdl"
+    self.weaponEntity = nil
+    self.lastShotTime = 0
+    self.shotCooldown = 0.5
+    self.accuracy = 1.0
+    self.lastAccuracyUpdate = CurTime()
     
     -- Initialize tactical variables
     self.tacticalState = AI_STATES.IDLE_RECON
@@ -75,10 +89,17 @@ function ENT:Initialize()
     self.currentPath = nil
     self.targetPosition = nil
     
+    -- Animation variables
+    self.currentAnimation = "idle"
+    self.animationStartTime = CurTime()
+    self.isMoving = false
+    self.lastMoveTime = 0
+    
     -- Network variables for client display
     self:SetNWInt("tacticalState", self.tacticalState)
     self:SetNWFloat("stealthLevel", self.stealthLevel)
     self:SetNWString("currentObjective", self.currentObjective)
+    self:SetNWString("currentAnimation", self.currentAnimation)
     
     -- DRGBase integration
     if DRGBase then
@@ -88,6 +109,105 @@ function ENT:Initialize()
     
     -- Set up AI behavior
     self:SetupTacticalAI()
+    
+    -- Create weapon entity
+    self:CreateWeapon()
+    
+    -- Network the weapon entity
+    self:SetNWEntity("weaponEntity", self.weaponEntity)
+end
+
+-- Weapon functions
+function ENT:CreateWeapon()
+    -- Create weapon entity
+    local weapon = ents.Create("prop_dynamic")
+    if IsValid(weapon) then
+        weapon:SetModel(self.weaponModel)
+        weapon:SetParent(self)
+        weapon:SetLocalPos(Vector(0, 0, 0))
+        weapon:SetLocalAngles(Angle(0, 0, 0))
+        weapon:SetNoDraw(false)
+        weapon:DrawShadow(false)
+        weapon:Spawn()
+        
+        self.weaponEntity = weapon
+    end
+end
+
+function ENT:UpdateWeaponPosition()
+    if not IsValid(self.weaponEntity) then return end
+    
+    local weaponPos = Vector(0, 0, 0)
+    local weaponAng = Angle(0, 0, 0)
+    
+    -- Adjust weapon position based on animation state
+    if self.currentAnimation == "walk" then
+        weaponPos = Vector(5, -10, -5)
+        weaponAng = Angle(0, -10, 0)
+    elseif self.currentAnimation == "idle" then
+        weaponPos = Vector(5, -8, -3)
+        weaponAng = Angle(0, -5, 0)
+    elseif self.currentAnimation == "aim" then
+        weaponPos = Vector(8, -12, -2)
+        weaponAng = Angle(0, -15, 0)
+    end
+    
+    self.weaponEntity:SetLocalPos(weaponPos)
+    self.weaponEntity:SetLocalAngles(weaponAng)
+end
+
+-- Animation functions
+function ENT:PlayAnimation(animationName)
+    if self.currentAnimation == animationName then return end
+    
+    self.currentAnimation = animationName
+    self.animationStartTime = CurTime()
+    
+    -- Set the appropriate sequence based on animation name
+    local sequence = self:LookupSequence(animationName)
+    if sequence and sequence > 0 then
+        self:SetSequence(sequence)
+    else
+        -- Fallback sequences for common animations
+        if animationName == "idle" then
+            self:SetSequence(self:LookupSequence("idle") or 0)
+        elseif animationName == "walk" then
+            self:SetSequence(self:LookupSequence("walk") or self:LookupSequence("run") or 0)
+        elseif animationName == "aim" then
+            self:SetSequence(self:LookupSequence("gesture_range_attack") or 0)
+        end
+    end
+    
+    -- Update networked variable
+    self:SetNWString("currentAnimation", self.currentAnimation)
+end
+
+function ENT:UpdateAnimation()
+    local velocity = self:GetVelocity():Length()
+    local currentTime = CurTime()
+    
+    -- Determine if we're moving
+    local wasMoving = self.isMoving
+    self.isMoving = velocity > 10
+    
+    -- Update animation based on movement
+    if self.isMoving then
+        if not wasMoving or self.currentAnimation ~= "walk" then
+            self:PlayAnimation("walk")
+        end
+        self.lastMoveTime = currentTime
+    else
+        -- Check if we should switch to idle
+        if wasMoving or self.currentAnimation ~= "idle" then
+            -- Small delay before switching to idle to prevent animation flickering
+            if currentTime - self.lastMoveTime > 0.1 then
+                self:PlayAnimation("idle")
+            end
+        end
+    end
+    
+    -- Update weapon position
+    self:UpdateWeaponPosition()
 end
 
 function ENT:SetupTacticalAI()
@@ -120,6 +240,9 @@ end
 function ENT:ExecuteTacticalAI()
     -- Update tactical state based on current conditions
     self:UpdateTacticalState()
+    
+    -- Update animations
+    self:UpdateAnimation()
     
     -- Execute current state behavior
     if self.tacticalState == AI_STATES.IDLE_RECON then
@@ -394,6 +517,20 @@ function ENT:DetectPlayerActivity()
             if distance < TACTICAL_CONFIG.STEALTH_RADIUS then
                 -- Check if player is making noise
                 if self:IsPlayerMakingNoise(player) then
+                    self.targetPlayer = player
+                    self.lastKnownPosition = player:GetPos()
+                    return true
+                end
+                
+                -- Check for visual contact
+                if self:HasVisualContact() and distance < TACTICAL_CONFIG.STEALTH_RADIUS * 0.7 then
+                    self.targetPlayer = player
+                    self.lastKnownPosition = player:GetPos()
+                    return true
+                end
+                
+                -- Check for flashlight usage
+                if player:FlashlightIsOn() and distance < TACTICAL_CONFIG.STEALTH_RADIUS * 0.5 then
                     self.targetPlayer = player
                     self.lastKnownPosition = player:GetPos()
                     return true
@@ -688,10 +825,30 @@ end
 function ENT:FireSuppressedShot()
     if not IsValid(self.targetPlayer) then return end
     
+    -- Check cooldown
+    if CurTime() - self.lastShotTime < self.shotCooldown then return end
+    
+    -- Check range
+    local distance = self:GetPos():Distance(self.targetPlayer:GetPos())
+    if distance > TACTICAL_CONFIG.WEAPON_RANGE then return end
+    
+    -- Play aim animation
+    self:PlayAnimation("aim")
+    
+    -- Calculate accuracy-based shot
+    local accuracy = self.accuracy
+    local targetPos = self.targetPlayer:GetPos() + Vector(0, 0, 50)
+    local myPos = self:GetPos() + Vector(0, 0, 50)
+    
+    -- Add accuracy-based spread
+    local spread = (1.0 - accuracy) * 100
+    local spreadVector = VectorRand() * spread
+    local finalTarget = targetPos + spreadVector
+    
     -- Fire suppressed weapon
     local trace = util.TraceLine({
-        start = self:GetPos() + Vector(0, 0, 50),
-        endpos = self.targetPlayer:GetPos() + Vector(0, 0, 50),
+        start = myPos,
+        endpos = finalTarget,
         filter = {self, self.targetPlayer}
     })
     
@@ -702,9 +859,9 @@ function ENT:FireSuppressedShot()
         effect:SetNormal(trace.HitNormal)
         util.Effect("cball_bounce", effect)
         
-        -- Damage player
+        -- Damage player with improved accuracy
         local dmg = DamageInfo()
-        dmg:SetDamage(25)
+        dmg:SetDamage(35) -- Increased damage
         dmg:SetAttacker(self)
         dmg:SetDamageType(DMG_BULLET)
         
@@ -712,6 +869,13 @@ function ENT:FireSuppressedShot()
         
         -- Play suppressed shot sound
         self:EmitSound("weapons/silencer.wav", 50, 100)
+        
+        -- Update last shot time
+        self.lastShotTime = CurTime()
+        
+        -- Reduce accuracy and stealth
+        self.accuracy = math.max(0.3, self.accuracy - TACTICAL_CONFIG.ACCURACY_DECAY)
+        self.stealthLevel = math.max(0.0, self.stealthLevel - 0.1)
     end
 end
 
@@ -830,19 +994,29 @@ end
 
 -- NextBot movement handling
 function ENT:BodyUpdate()
-    local act = self:GetActivity()
-    
-    if self:IsMoving() then
-        if act ~= ACT_WALK and act ~= ACT_RUN then
-            self:StartActivity(ACT_WALK)
-        end
-    else
-        if act ~= ACT_IDLE then
-            self:StartActivity(ACT_IDLE)
-        end
-    end
-    
+    -- Let the animation system handle movement
     self:FrameAdvance()
+    
+    -- Update pose parameters for better animation
+    local velocity = self:GetVelocity():Length()
+    local speed = math.Clamp(velocity / 200, 0, 1)
+    
+    -- Set pose parameters for movement
+    self:SetPoseParameter("move_x", speed)
+    self:SetPoseParameter("move_y", 0)
+    
+    -- Set pose parameters for aiming
+    if self.tacticalState == AI_STATES.ENGAGE_SUPPRESSED and IsValid(self.targetPlayer) then
+        local aimDir = (self.targetPlayer:GetPos() - self:GetPos()):GetNormalized()
+        local aimAng = aimDir:Angle()
+        local yawDiff = math.AngleDifference(aimAng.yaw, self:GetAngles().yaw)
+        
+        self:SetPoseParameter("aim_yaw", yawDiff)
+        self:SetPoseParameter("aim_pitch", aimAng.pitch)
+    else
+        self:SetPoseParameter("aim_yaw", 0)
+        self:SetPoseParameter("aim_pitch", 0)
+    end
 end
 
 function ENT:OnKilled(dmg)
@@ -902,6 +1076,11 @@ end
 -- Cleanup
 function ENT:OnRemove()
     timer.Remove("SplinterCellAI_" .. self:EntIndex())
+    
+    -- Clean up weapon entity
+    if IsValid(self.weaponEntity) then
+        self.weaponEntity:Remove()
+    end
 end
 
 -- Additional NextBot lifecycle functions for better AI behavior
@@ -915,9 +1094,20 @@ function ENT:Think()
     -- Handle immediate threats
     self:HandleImmediateThreats()
     
+    -- Recover accuracy over time
+    self:RecoverAccuracy()
+    
     -- Set next think time
     self:NextThink(CurTime() + 0.1)
     return true
+end
+
+function ENT:RecoverAccuracy()
+    local currentTime = CurTime()
+    if currentTime - self.lastAccuracyUpdate > TACTICAL_CONFIG.RECOVERY_TIME then
+        self.accuracy = math.min(1.0, self.accuracy + 0.1)
+        self.lastAccuracyUpdate = currentTime
+    end
 end
 
 function ENT:UpdateStealthLevel()
