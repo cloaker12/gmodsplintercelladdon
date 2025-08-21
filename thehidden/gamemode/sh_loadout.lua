@@ -26,7 +26,11 @@ LDT.Weapons =
 	"weapon_hdn_mp5",
 	"weapon_hdn_ump",
 	"weapon_hdn_sg550",
-	"weapon_hdn_p90"
+	"weapon_hdn_p90",
+	"weapon_hdn_357",
+	"weapon_hdn_deagle",
+	"weapon_hdn_glock",
+	"weapon_hdn_p228"
 }
 
 

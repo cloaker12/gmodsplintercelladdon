@@ -182,6 +182,11 @@ function GM:PlayerBindPress( ply, bind )
 		if ply:IsHidden() and self.Hidden.VisionEnable and ply:Alive() then
 			ToggleHiddenVision()
 		end
+	elseif bind == "gm_showspare2" then -- F2 key
+		if not ply:IsHidden() and ply:Alive() then
+			RunConsoleCommand("hdn_loadout")
+		end
+		return true
 	end
 end 
 

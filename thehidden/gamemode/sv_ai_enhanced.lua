@@ -262,13 +262,8 @@ end
 
 -- Check if a position is a good hiding spot
 function GM:IsGoodHidingSpot(pos, hiddenPly)
-    -- Check if position is in darkness or has cover
-    local lightLevel = render.GetLightColor(pos)
-    local avgLight = (lightLevel.r + lightLevel.g + lightLevel.b) / 3
-    
-    if avgLight < 0.3 then
-        return true -- Dark area
-    end
+    -- Check if position has cover from multiple angles (removed render dependency)
+    -- Just check for cover without light level calculations
     
     -- Check for cover from multiple angles
     local coverCount = 0
@@ -366,14 +361,10 @@ function GM:CalculateAmbushScore(ambushPos, targetPos, hiddenPos)
         score = score + 30
     end
     
-    -- Check concealment (darkness bonus)
-    local lightLevel = render.GetLightColor(ambushPos)
-    local avgLight = (lightLevel.r + lightLevel.g + lightLevel.b) / 3
-    if avgLight < 0.2 then
-        score = score + 40
-    elseif avgLight < 0.4 then
-        score = score + 20
-    end
+    -- Check concealment (removed render dependency)
+    -- Give bonus for positions that would typically be dark
+    -- This is a simplified heuristic without render calculations
+    score = score + 20
     
     return score
 end
