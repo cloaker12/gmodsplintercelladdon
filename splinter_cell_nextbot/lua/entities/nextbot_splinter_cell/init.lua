@@ -10,6 +10,8 @@ util.AddNetworkString("SplinterCellSmokeDeploy")
 util.AddNetworkString("SplinterCellWallClimb")
 util.AddNetworkString("SplinterCellNightVision")
 util.AddNetworkString("SplinterCellCombatUpdate")
+util.AddNetworkString("SplinterCellRequestLightLevel")
+util.AddNetworkString("SplinterCellLightLevelResponse")
 
 -- Handle whisper messages
 net.Receive("SplinterCellWhisper", function(len, ply)
@@ -71,6 +73,19 @@ net.Receive("SplinterCellNightVision", function(len, ply)
             effect:SetScale(0.5)
             util.Effect("cball_bounce", effect)
         end
+    end
+end)
+
+-- Handle light level responses from clients
+net.Receive("SplinterCellLightLevelResponse", function(len, ply)
+    local position = net.ReadVector()
+    local lightLevel = net.ReadFloat()
+    
+    -- Store the light level data for use by the AI
+    -- This could be expanded to cache light levels for different positions
+    if IsValid(ply) then
+        -- For now, we'll just use the basic server-side method
+        -- Future enhancement: cache client-provided light levels
     end
 end)
 
@@ -1812,6 +1827,9 @@ function ENT:UpdateStealthLevel()
     if lightLevel < 0.3 and #nearbyPlayers == 0 then
         self.stealthLevel = math.min(1.0, self.stealthLevel + 0.005)
     end
+    
+    -- Update networked stealth level for client-side effects
+    self:SetNWFloat("stealthLevel", self.stealthLevel)
 end
 
 function ENT:HandleImmediateThreats()
@@ -2797,8 +2815,63 @@ end
 -- Utility Functions
 function ENT:GetLightLevel(position)
     -- Get light level at position (0 = dark, 1 = bright)
-    local light = render.GetLightColor(position)
-    return (light.r + light.g + light.b) / 3
+    -- Since render.GetLightColor is client-side only, we'll use a server-side approximation
+    -- based on time of day and environment
+    local time = os.date("*t")
+    local hour = time.hour
+    
+    -- Basic time-based lighting (0 = dark, 1 = bright)
+    local baseLight = 0.5
+    
+    -- Adjust based on time of day
+    if hour >= 6 and hour <= 18 then
+        -- Daytime
+        baseLight = 0.8
+    elseif hour >= 19 and hour <= 21 then
+        -- Evening
+        baseLight = 0.6
+    elseif hour >= 22 or hour <= 5 then
+        -- Night
+        baseLight = 0.2
+    end
+    
+    -- Add some randomness to simulate dynamic lighting
+    local randomFactor = math.random() * 0.2 - 0.1
+    baseLight = math.Clamp(baseLight + randomFactor, 0.0, 1.0)
+    
+    -- Check for nearby light sources (props, etc.)
+    local nearbyLights = ents.FindInSphere(position, 200)
+    for _, ent in pairs(nearbyLights) do
+        if ent:GetClass() == "light" or ent:GetClass() == "light_spot" or ent:GetClass() == "light_environment" then
+            local distance = position:Distance(ent:GetPos())
+            local lightInfluence = math.max(0, 1 - (distance / 200))
+            baseLight = math.min(1.0, baseLight + lightInfluence * 0.3)
+        end
+    end
+    
+    return baseLight
+end
+
+-- Enhanced light level detection using client-side data when available
+function ENT:GetEnhancedLightLevel(position)
+    -- Try to get light level from nearby players (client-side)
+    local players = player.GetAll()
+    local bestLightLevel = nil
+    
+    for _, player in pairs(players) do
+        if IsValid(player) and player:GetPos():Distance(position) < 500 then
+            -- Request light level from this player
+            net.Start("SplinterCellRequestLightLevel")
+            net.WriteVector(position)
+            net.Send(player)
+            
+            -- For now, use the basic method and let client-side handle the response
+            -- This is a placeholder for future enhancement
+        end
+    end
+    
+    -- Fall back to server-side approximation
+    return self:GetLightLevel(position)
 end
 
 function ENT:FindNearestShadow()
