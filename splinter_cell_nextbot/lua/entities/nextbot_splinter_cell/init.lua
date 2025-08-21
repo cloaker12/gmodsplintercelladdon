@@ -232,6 +232,13 @@ function ENT:Initialize()
     self.lastNavigationUpdate = CurTime()
     self.evasionTargets = {}
     self.wallClimbTarget = nil
+    
+    -- Performance optimization variables
+    self.cachedPlayerPositions = {}
+    self.lastPlayerPositionUpdate = 0
+    self.cachedDistances = {}
+    self.lastDistanceUpdate = 0
+    self.performanceUpdateInterval = 0.5
     self.isClimbing = false
     self.climbStartPos = Vector(0, 0, 0)
     self.climbEndPos = Vector(0, 0, 0)
@@ -390,7 +397,71 @@ function ENT:UpdateWeaponPosition()
     self.weaponEntity:SetLocalAngles(weaponAng)
 end
 
+-- Performance optimization functions
+function ENT:GetCachedPlayerPositions()
+    local currentTime = CurTime()
+    if currentTime - self.lastPlayerPositionUpdate > self.performanceUpdateInterval then
+        self.cachedPlayerPositions = {}
+        for _, player in ipairs(player.GetAll()) do
+            if IsValid(player) and player:Alive() then
+                self.cachedPlayerPositions[player] = player:GetPos()
+            end
+        end
+        self.lastPlayerPositionUpdate = currentTime
+    end
+    return self.cachedPlayerPositions
+end
+
+function ENT:GetCachedDistance(entity)
+    if not IsValid(entity) then return math.huge end
+    
+    local currentTime = CurTime()
+    local cacheKey = tostring(entity)
+    
+    if not self.cachedDistances[cacheKey] or 
+       currentTime - self.lastDistanceUpdate > self.performanceUpdateInterval then
+        
+        local distance = self:GetPos():Distance(entity:GetPos())
+        self.cachedDistances[cacheKey] = {
+            distance = distance,
+            updateTime = currentTime
+        }
+        self.lastDistanceUpdate = currentTime
+    end
+    
+    return self.cachedDistances[cacheKey].distance
+end
+
+function ENT:CleanupPerformanceCache()
+    -- Clean up old cached data to prevent memory leaks
+    local currentTime = CurTime()
+    
+    -- Clean up old distance cache entries
+    for key, data in pairs(self.cachedDistances) do
+        if currentTime - data.updateTime > 2.0 then
+            self.cachedDistances[key] = nil
+        end
+    end
+    
+    -- Clean up player position cache if it's too old
+    if currentTime - self.lastPlayerPositionUpdate > 2.0 then
+        self.cachedPlayerPositions = {}
+    end
+end
+
 -- Animation functions
+function ENT:ValidateAndSetSequence(sequence)
+    -- Validate sequence before setting it
+    if not IsValid(self) then return false end
+    if not sequence or sequence < 0 then return false end
+    
+    local sequenceCount = self:GetSequenceCount()
+    if sequence >= sequenceCount then return false end
+    
+    self:SetSequence(sequence)
+    return true
+end
+
 function ENT:PlayAnimation(animationName)
     if not animationName or not IsValid(self) then return end
     if self.currentAnimation == animationName then return end
@@ -400,77 +471,67 @@ function ENT:PlayAnimation(animationName)
     
     -- Set the appropriate sequence based on animation name
     local sequence = self:LookupSequence(animationName)
-    if sequence and sequence > 0 then
-        self:SetSequence(sequence)
+    if sequence and sequence > 0 and self:ValidateAndSetSequence(sequence) then
+        return -- Successfully set sequence
     else
         -- Fallback sequences for common animations with HL2 pistol animations
         if animationName == "idle" then
-            -- ACT_IDLE_PISTOL - pistol idle animation
-            local idleSeq = self:LookupSequence("idle")
-            if idleSeq and idleSeq > 0 then
-                self:SetSequence(idleSeq)
-            else
-                -- Ultimate fallback - use first available sequence
-                self:SetSequence(0)
+            -- Try multiple idle sequences
+            local idleSequences = {"idle", "idle01", "idle_all_01", "idle_unarmed"}
+            local setSuccessfully = false
+            for _, seqName in ipairs(idleSequences) do
+                local seq = self:LookupSequence(seqName)
+                if seq and seq > 0 and self:ValidateAndSetSequence(seq) then
+                    setSuccessfully = true
+                    break
+                end
+            end
+            if not setSuccessfully then
+                self:ValidateAndSetSequence(0)
             end
         elseif animationName == "walk" then
-            -- ACT_WALK_PISTOL - slow pistol walk animation
-            local walkSeq = self:LookupSequence("walk")
-            if walkSeq and walkSeq > 0 then
-                self:SetSequence(walkSeq)
-            else
-                local runSeq = self:LookupSequence("run")
-                if runSeq and runSeq > 0 then
-                    self:SetSequence(runSeq)
-                else
-                    self:SetSequence(0)
+            -- Try multiple walk sequences
+            local walkSequences = {"walk", "walk_all", "run", "run_all"}
+            local setSuccessfully = false
+            for _, seqName in ipairs(walkSequences) do
+                local seq = self:LookupSequence(seqName)
+                if seq and seq > 0 and self:ValidateAndSetSequence(seq) then
+                    setSuccessfully = true
+                    break
                 end
             end
-        elseif animationName == "crouch_walk" then
-            -- ACT_WALK_CROUCH_PISTOL - pistol crouch-walk animation
-            local crouchSeq = self:LookupSequence("crouch_walk")
-            if crouchSeq and crouchSeq > 0 then
-                self:SetSequence(crouchSeq)
-            else
-                local walkSeq = self:LookupSequence("walk")
-                if walkSeq and walkSeq > 0 then
-                    self:SetSequence(walkSeq)
-                else
-                    self:SetSequence(0)
-                end
-            end
-        elseif animationName == "aim" then
-            -- Aiming stance
-            local aimSeq = self:LookupSequence("gesture_range_attack")
-            if aimSeq and aimSeq > 0 then
-                self:SetSequence(aimSeq)
-            else
-                self:SetSequence(0)
-            end
-        elseif animationName == "reload" then
-            -- Reload animation
-            local reloadSeq = self:LookupSequence("gesture_reload")
-            if reloadSeq and reloadSeq > 0 then
-                self:SetSequence(reloadSeq)
-            else
-                self:SetSequence(0)
-            end
-        elseif animationName == "run" then
-            -- ACT_RUN_PISTOL - only in emergencies
-            local runSeq = self:LookupSequence("run")
-            if runSeq and runSeq > 0 then
-                self:SetSequence(runSeq)
-            else
-                local walkSeq = self:LookupSequence("walk")
-                if walkSeq and walkSeq > 0 then
-                    self:SetSequence(walkSeq)
-                else
-                    self:SetSequence(0)
-                end
+            if not setSuccessfully then
+                self:ValidateAndSetSequence(0)
             end
         else
-            -- Default fallback
-            self:SetSequence(0)
+            -- Use a comprehensive fallback system for any animation
+            local fallbackSequences = {}
+            
+            if animationName == "crouch_walk" then
+                fallbackSequences = {"crouch_walk", "crouch_idle", "walk", "idle"}
+            elseif animationName == "aim" then
+                fallbackSequences = {"gesture_range_attack", "range_attack1", "idle"}
+            elseif animationName == "reload" then
+                fallbackSequences = {"gesture_reload", "reload", "idle"}
+            elseif animationName == "run" then
+                fallbackSequences = {"run", "run_all", "walk", "walk_all", "idle"}
+            else
+                -- Generic fallback for any unknown animation
+                fallbackSequences = {"idle", "idle01", "idle_all_01", "idle_unarmed"}
+            end
+            
+            local setSuccessfully = false
+            for _, seqName in ipairs(fallbackSequences) do
+                local seq = self:LookupSequence(seqName)
+                if seq and seq > 0 and self:ValidateAndSetSequence(seq) then
+                    setSuccessfully = true
+                    break
+                end
+            end
+            
+            if not setSuccessfully then
+                self:ValidateAndSetSequence(0)
+            end
         end
     end
     
@@ -580,11 +641,21 @@ end
 function ENT:ExecuteTacticalAI()
     if not IsValid(self) then return end
     
-    -- Update tactical state based on current conditions
-    self:UpdateTacticalState()
+    -- Update tactical state based on current conditions with error handling
+    local success, err = pcall(function()
+        self:UpdateTacticalState()
+    end)
+    if not success then
+        print("[SplinterCellAI] Error in UpdateTacticalState: " .. tostring(err))
+    end
     
-    -- Update animations
-    self:UpdateAnimation()
+    -- Update animations with error handling
+    success, err = pcall(function()
+        self:UpdateAnimation()
+    end)
+    if not success then
+        print("[SplinterCellAI] Error in UpdateAnimation: " .. tostring(err))
+    end
     
     -- CRITICAL FIX: Update movement system
     self:UpdateMovement()
@@ -734,30 +805,42 @@ end
 
 -- Movement helper functions using proper NextBot methods
 function ENT:MoveToPosition(targetPos)
-    if not targetPos then return end
+    if not targetPos or not IsValid(self) then return end
     
     self.targetPosition = targetPos
-    local path = Path("Follow")
-    path:SetMinLookAheadDistance(300)
-    path:SetGoalTolerance(20)
-    path:Compute(self, targetPos)
     
-    if not path:IsValid() then
-        -- Try alternative pathfinding with different parameters
-        local altPath = Path("Follow")
-        altPath:SetMinLookAheadDistance(200)
-        altPath:SetGoalTolerance(50)
-        altPath:Compute(self, targetPos)
-        
-        if altPath:IsValid() then
-            self.currentPath = altPath
-        else
-            -- Direct movement if pathfinding fails
-            self:SetLastPosition(targetPos)
-            return
-        end
-    else
+    -- Use pcall to prevent pathfinding errors from crashing the AI
+    local success, path = pcall(function()
+        local p = Path("Follow")
+        p:SetMinLookAheadDistance(300)
+        p:SetGoalTolerance(20)
+        p:Compute(self, targetPos)
+        return p
+    end)
+    
+    if success and path and path:IsValid() then
         self.currentPath = path
+        return
+    end
+    
+    -- Try alternative pathfinding with different parameters
+    local altSuccess, altPath = pcall(function()
+        local p = Path("Follow")
+        p:SetMinLookAheadDistance(200)
+        p:SetGoalTolerance(50)
+        p:Compute(self, targetPos)
+        return p
+    end)
+    
+    if altSuccess and altPath and altPath:IsValid() then
+        self.currentPath = altPath
+    else
+        -- Direct movement if pathfinding fails
+        if self.SetLastPosition then
+            self:SetLastPosition(targetPos)
+        end
+        -- Clear any invalid path
+        self.currentPath = nil
     end
 end
 
@@ -870,8 +953,11 @@ function ENT:ExecutePatrol()
     
     -- Set movement speed for patrol
     if IsValid(self) then
-        self:SetDesiredSpeed(TACTICAL_CONFIG.PATROL_SPEED)
-        self:SetMaxSpeed(TACTICAL_CONFIG.PATROL_SPEED)
+        if self.SetDesiredSpeed then
+            self:SetDesiredSpeed(TACTICAL_CONFIG.PATROL_SPEED)
+        elseif self.SetMaxSpeed then
+            self:SetMaxSpeed(TACTICAL_CONFIG.PATROL_SPEED)
+        end
     end
     
     -- Handle current path movement
@@ -953,14 +1039,22 @@ end
 
 function ENT:PauseForScanning()
     -- Pause movement and scan the area
-    self:SetDesiredSpeed(0)
-    self:SetMaxSpeed(0)
+    if IsValid(self) then
+        if self.SetDesiredSpeed then
+            self:SetDesiredSpeed(0)
+        elseif self.SetMaxSpeed then
+            self:SetMaxSpeed(0)
+        end
+    end
     
     -- Resume after a short delay
     timer.Simple(2, function()
         if IsValid(self) then
-            self:SetDesiredSpeed(TACTICAL_CONFIG.PATROL_SPEED)
-            self:SetMaxSpeed(TACTICAL_CONFIG.PATROL_SPEED)
+            if self.SetDesiredSpeed then
+                self:SetDesiredSpeed(TACTICAL_CONFIG.PATROL_SPEED)
+            elseif self.SetMaxSpeed then
+                self:SetMaxSpeed(TACTICAL_CONFIG.PATROL_SPEED)
+            end
         end
     end)
 end
@@ -1089,8 +1183,11 @@ function ENT:ExecuteSuspicious()
     
     -- Set movement speed for suspicious state
     if IsValid(self) then
-        self:SetDesiredSpeed(TACTICAL_CONFIG.SUSPICIOUS_SPEED)
-        self:SetMaxSpeed(TACTICAL_CONFIG.SUSPICIOUS_SPEED)
+        if self.SetDesiredSpeed then
+            self:SetDesiredSpeed(TACTICAL_CONFIG.SUSPICIOUS_SPEED)
+        elseif self.SetMaxSpeed then
+            self:SetMaxSpeed(TACTICAL_CONFIG.SUSPICIOUS_SPEED)
+        end
     end
     
     -- Build Suspicion Meter
@@ -1130,8 +1227,11 @@ end
 function ENT:ExecuteHunt()
     -- HUNT STATE: High alert, tactical stalking
     if IsValid(self) then
-        self:SetDesiredSpeed(TACTICAL_CONFIG.HUNT_SPEED)
-        self:SetMaxSpeed(TACTICAL_CONFIG.HUNT_SPEED)
+        if self.SetDesiredSpeed then
+            self:SetDesiredSpeed(TACTICAL_CONFIG.HUNT_SPEED)
+        elseif self.SetMaxSpeed then
+            self:SetMaxSpeed(TACTICAL_CONFIG.HUNT_SPEED)
+        end
     end
     
     -- Move towards target while staying in cover
@@ -1148,8 +1248,11 @@ end
 function ENT:ExecuteEngage()
     -- ENGAGE STATE: Combat engagement
     if IsValid(self) then
-        self:SetDesiredSpeed(TACTICAL_CONFIG.ENGAGE_SPEED)
-        self:SetMaxSpeed(TACTICAL_CONFIG.ENGAGE_SPEED)
+        if self.SetDesiredSpeed then
+            self:SetDesiredSpeed(TACTICAL_CONFIG.ENGAGE_SPEED)
+        elseif self.SetMaxSpeed then
+            self:SetMaxSpeed(TACTICAL_CONFIG.ENGAGE_SPEED)
+        end
     end
     
     -- Execute takedown if close enough
@@ -1181,8 +1284,11 @@ end
 function ENT:ExecuteDisappear()
     -- DISAPPEAR STATE: Reset/retreat with smoke
     if IsValid(self) then
-        self:SetDesiredSpeed(TACTICAL_CONFIG.DISAPPEAR_SPEED)
-        self:SetMaxSpeed(TACTICAL_CONFIG.DISAPPEAR_SPEED)
+        if self.SetDesiredSpeed then
+            self:SetDesiredSpeed(TACTICAL_CONFIG.DISAPPEAR_SPEED)
+        elseif self.SetMaxSpeed then
+            self:SetMaxSpeed(TACTICAL_CONFIG.DISAPPEAR_SPEED)
+        end
     end
     
     -- Use smoke grenade if available
@@ -1783,8 +1889,11 @@ function ENT:IsPathBlocked()
     if not self.currentPath or not self.currentPath:IsValid() then return true end
     
     -- Check if there are obstacles in the path
-    local nextSegment = self.currentPath:GetNextSegment()
-    if nextSegment and nextSegment.pos then
+    local success, nextSegment = pcall(function()
+        return self.currentPath:GetNextSegment()
+    end)
+    
+    if success and nextSegment and nextSegment.pos then
         local trace = util.TraceLine({
             start = self:GetPos() + Vector(0, 0, 50),
             endpos = nextSegment.pos + Vector(0, 0, 50),
@@ -1794,6 +1903,8 @@ function ENT:IsPathBlocked()
         return trace.Hit
     end
     
+    -- If we can't get the next segment, assume path is not blocked
+    -- This prevents errors while allowing pathfinding to continue
     return false
 end
 
@@ -2227,11 +2338,23 @@ function ENT:Think()
     end
     
     -- Ensure we always have a valid animation sequence to prevent T-posing
-    if self:GetSequence() <= 0 then
-        local idleSeq = self:LookupSequence("idle")
-        if idleSeq and idleSeq > 0 then
-            self:SetSequence(idleSeq)
-        else
+    local currentSeq = self:GetSequence()
+    if currentSeq <= 0 or currentSeq >= self:GetSequenceCount() then
+        -- Try to find a suitable idle animation
+        local fallbackSequences = {"idle", "idle01", "idle_all_01", "idle_unarmed", "ref_pose"}
+        local foundValidSeq = false
+        
+        for _, seqName in ipairs(fallbackSequences) do
+            local seq = self:LookupSequence(seqName)
+            if seq and seq > 0 and seq < self:GetSequenceCount() then
+                self:SetSequence(seq)
+                foundValidSeq = true
+                break
+            end
+        end
+        
+        -- Ultimate fallback to sequence 0 if nothing else works
+        if not foundValidSeq then
             self:SetSequence(0)
         end
     end
@@ -2245,9 +2368,42 @@ function ENT:Think()
     -- Recover accuracy over time
     self:RecoverAccuracy()
     
-    -- Set next think time
-    self:NextThink(CurTime() + 0.1)
+    -- Clean up performance cache periodically
+    if math.random(1, 10) == 1 then -- Only 10% of the time to reduce overhead
+        self:CleanupPerformanceCache()
+    end
+    
+    -- Set next think time - reduced frequency for better performance
+    self:NextThink(CurTime() + 0.2)
     return true
+end
+
+function ENT:OnRemove()
+    -- Clean up all resources when entity is removed
+    if self.cachedPlayerPositions then
+        self.cachedPlayerPositions = nil
+    end
+    if self.cachedDistances then
+        self.cachedDistances = nil
+    end
+    if self.activeSmokeEffects then
+        self.activeSmokeEffects = nil
+    end
+    if self.evasionTargets then
+        self.evasionTargets = nil
+    end
+    
+    -- Clean up weapon entity if it exists
+    if IsValid(self.weaponEntity) then
+        self.weaponEntity:Remove()
+        self.weaponEntity = nil
+    end
+    
+    -- Clean up any paths
+    if self.currentPath and self.currentPath.Invalidate then
+        self.currentPath:Invalidate()
+        self.currentPath = nil
+    end
 end
 
 function ENT:RecoverAccuracy()
