@@ -59,7 +59,8 @@ GM.Hidden.DamageScaleRatio =  0.015 //How much % extra damage the hidden gets pe
 //Hud selection options.
 // legacy - HUD created faithfully from the original Hidden game.
 // new - My version of the HUD.
-GM.Hidden.HUD = "new" //Default: legacy.
+// splintercell - Modern tactical Splinter Cell themed HUD.
+GM.Hidden.HUD = "splintercell" //Default: splintercell.
 
 //Pig Stick Mode
 //1 = Normal pig stick. (High damage attack, with a delay and a sound.)
