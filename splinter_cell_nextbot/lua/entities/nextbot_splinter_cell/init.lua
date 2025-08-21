@@ -173,6 +173,12 @@ function ENT:Initialize()
     self:SetMaxHealth(200)
     self:SetCollisionBounds(Vector(-16, -16, 0), Vector(16, 16, 72))
     
+    -- CRITICAL FIX: Properly initialize NextBot movement system
+    self:SetDesiredSpeed(100)
+    self:SetMaxSpeed(150)
+    self:SetAcceleration(500)
+    self:SetDeceleration(500)
+    
     -- Ensure NextBot is properly initialized
     if not self.IsNextBot then
         self.IsNextBot = true
@@ -554,6 +560,9 @@ function ENT:ExecuteTacticalAI()
     -- Update animations
     self:UpdateAnimation()
     
+    -- CRITICAL FIX: Update movement system
+    self:UpdateMovement()
+    
     -- Execute current state behavior
     if self.tacticalState == AI_STATES.PATROL then
         self:ExecutePatrol()
@@ -726,6 +735,41 @@ function ENT:MoveToPosition(targetPos)
     end
 end
 
+-- CRITICAL FIX: Add proper NextBot movement implementation
+function ENT:UpdateMovement()
+    if not IsValid(self) then return end
+    
+    -- Handle path following
+    if self.currentPath and self.currentPath:IsValid() then
+        self.currentPath:Update(self)
+        
+        -- Check if we've reached the goal
+        if self.currentPath:GetAge() > 10 or self:GetPos():Distance(self.targetPosition) < 50 then
+            self.currentPath:Invalidate()
+            self.currentPath = nil
+            self.targetPosition = nil
+        end
+    end
+    
+    -- Handle direct movement if no path
+    if self.targetPosition and not self.currentPath then
+        local direction = (self.targetPosition - self:GetPos()):GetNormalized()
+        local distance = self:GetPos():Distance(self.targetPosition)
+        
+        if distance > 20 then
+            -- Move towards target
+            self:SetVelocity(direction * self:GetDesiredSpeed())
+            
+            -- Face the direction we're moving
+            local angle = math.deg(math.atan2(direction.y, direction.x))
+            self:SetAngles(Angle(0, angle, 0))
+        else
+            -- Reached target
+            self.targetPosition = nil
+        end
+    end
+end
+
 function ENT:MoveToLastKnownPosition()
     if self.lastKnownPosition and self.lastKnownPosition ~= Vector(0, 0, 0) then
         self:MoveToPosition(self.lastKnownPosition)
@@ -800,11 +844,8 @@ function ENT:ExecutePatrol()
     
     -- Set movement speed for patrol
     if IsValid(self) then
-        if self.SetDesiredSpeed then
-            self:SetDesiredSpeed(TACTICAL_CONFIG.PATROL_SPEED)
-        elseif self.SetMaxSpeed then
-            self:SetMaxSpeed(TACTICAL_CONFIG.PATROL_SPEED)
-        end
+        self:SetDesiredSpeed(TACTICAL_CONFIG.PATROL_SPEED)
+        self:SetMaxSpeed(TACTICAL_CONFIG.PATROL_SPEED)
     end
     
     -- Handle current path movement
@@ -841,9 +882,177 @@ function ENT:ExecutePatrol()
     end
 end
 
+-- CRITICAL FIX: Add missing helper functions
+function ENT:DisableNearbyLights()
+    -- Find and disable nearby light sources
+    local lights = ents.FindByClass("light*")
+    for _, light in pairs(lights) do
+        if IsValid(light) and self:GetPos():Distance(light:GetPos()) < TACTICAL_CONFIG.LIGHT_DISABLE_RANGE then
+            if light:GetClass() == "light" or light:GetClass() == "light_spot" then
+                light:Fire("TurnOff")
+            end
+        end
+    end
+end
+
+function ENT:PreferShadowsAndWalls()
+    -- Move towards darker areas when possible
+    local currentLight = self:GetLightLevel(self:GetPos())
+    if currentLight > 0.5 then
+        -- Try to find a darker path
+        local darkerPos = self:FindDarkerPosition()
+        if darkerPos then
+            self:MoveToPosition(darkerPos)
+        end
+    end
+end
+
+function ENT:FindDarkerPosition()
+    local currentPos = self:GetPos()
+    local searchRadius = 200
+    
+    for i = 1, 8 do
+        local angle = i * 45
+        local dir = Angle(0, angle, 0):Forward()
+        local testPos = currentPos + dir * searchRadius
+        
+        local lightLevel = self:GetLightLevel(testPos)
+        if lightLevel < 0.3 then
+            return testPos
+        end
+    end
+    
+    return nil
+end
+
+function ENT:PauseForScanning()
+    -- Pause movement and scan the area
+    self:SetDesiredSpeed(0)
+    self:SetMaxSpeed(0)
+    
+    -- Resume after a short delay
+    timer.Simple(2, function()
+        if IsValid(self) then
+            self:SetDesiredSpeed(TACTICAL_CONFIG.PATROL_SPEED)
+            self:SetMaxSpeed(TACTICAL_CONFIG.PATROL_SPEED)
+        end
+    end)
+end
+
+function ENT:PlayNVGHum()
+    -- Play NVG hum sound effect
+    self:EmitSound("ambient/machines/steam_release_1.wav", 50, 100, 0.3)
+end
+
+function ENT:WhisperRadio()
+    -- Play radio whisper sound
+    self:EmitSound("npc/metropolice/vo/takecover.wav", 30, 100, 0.2)
+end
+
+function ENT:FlashNVG()
+    -- Flash NVG effect
+    self:EmitSound("weapons/flashbang/flash_explode2.wav", 40, 120, 0.1)
+end
+
 function ENT:IsTakedownComplete()
     -- Check if takedown animation is finished
     return not self:IsMoving() and self.targetPlayer == nil
+end
+
+-- CRITICAL FIX: Add missing detection and utility functions
+function ENT:DetectPlayerActivity()
+    -- Check for nearby players
+    local players = player.GetAll()
+    for _, player in pairs(players) do
+        if IsValid(player) and player:Alive() then
+            local distance = self:GetPos():Distance(player:GetPos())
+            if distance < TACTICAL_CONFIG.STEALTH_RADIUS then
+                -- Check if player is making noise or visible
+                if self:CanSeePlayer(player) or self:CanHearPlayer(player) then
+                    self.targetPlayer = player
+                    self.lastKnownPosition = player:GetPos()
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
+function ENT:CanSeePlayer(player)
+    if not IsValid(player) then return false end
+    
+    local trace = util.TraceLine({
+        start = self:GetPos() + Vector(0, 0, 50),
+        endpos = player:GetPos() + Vector(0, 0, 50),
+        filter = {self, player},
+        mask = MASK_SOLID
+    })
+    
+    return not trace.Hit and self:GetPos():Distance(player:GetPos()) < TACTICAL_CONFIG.STEALTH_RADIUS
+end
+
+function ENT:CanHearPlayer(player)
+    if not IsValid(player) then return false end
+    
+    local distance = self:GetPos():Distance(player:GetPos())
+    local velocity = player:GetVelocity():Length()
+    
+    -- Players make more noise when moving fast
+    local noiseRadius = 100 + (velocity / 10)
+    
+    return distance < noiseRadius
+end
+
+function ENT:HasVisualContact()
+    return IsValid(self.targetPlayer) and self:CanSeePlayer(self.targetPlayer)
+end
+
+function ENT:CanExecuteTakedown()
+    if not IsValid(self.targetPlayer) then return false end
+    
+    local distance = self:GetPos():Distance(self.targetPlayer:GetPos())
+    return distance < TACTICAL_CONFIG.TAKEDOWN_RANGE
+end
+
+function ENT:IsCompromised()
+    return self.stealthLevel < 0.3
+end
+
+function ENT:ShouldRetreat()
+    return self:Health() < TACTICAL_CONFIG.RETREAT_HEALTH
+end
+
+function ENT:IsSafeToReset()
+    return not self:DetectPlayerActivity() and self:Health() > TACTICAL_CONFIG.RETREAT_HEALTH
+end
+
+function ENT:GetLightLevel(position)
+    -- Simple light level calculation
+    local trace = util.TraceLine({
+        start = position + Vector(0, 0, 100),
+        endpos = position + Vector(0, 0, 200),
+        filter = self,
+        mask = MASK_SOLID
+    })
+    
+    if trace.Hit then
+        return 0.2  -- In shadow
+    else
+        return 0.8  -- In light
+    end
+end
+
+function ENT:HasCover(position)
+    -- Check if position has cover
+    local trace = util.TraceLine({
+        start = position,
+        endpos = position + Vector(0, 0, 50),
+        filter = self,
+        mask = MASK_SOLID
+    })
+    
+    return trace.Hit
 end
 
 function ENT:ExecuteSuspicious()
@@ -854,11 +1063,8 @@ function ENT:ExecuteSuspicious()
     
     -- Set movement speed for suspicious state
     if IsValid(self) then
-        if self.SetDesiredSpeed then
-            self:SetDesiredSpeed(TACTICAL_CONFIG.SUSPICIOUS_SPEED)
-        elseif self.SetMaxSpeed then
-            self:SetMaxSpeed(TACTICAL_CONFIG.SUSPICIOUS_SPEED)
-        end
+        self:SetDesiredSpeed(TACTICAL_CONFIG.SUSPICIOUS_SPEED)
+        self:SetMaxSpeed(TACTICAL_CONFIG.SUSPICIOUS_SPEED)
     end
     
     -- Build Suspicion Meter
@@ -892,6 +1098,153 @@ function ENT:ExecuteSuspicious()
     if math.random() < 0.03 then
         self:FlashNVG()
     end
+end
+
+-- CRITICAL FIX: Add missing state execution functions
+function ENT:ExecuteHunt()
+    -- HUNT STATE: High alert, tactical stalking
+    if IsValid(self) then
+        self:SetDesiredSpeed(TACTICAL_CONFIG.HUNT_SPEED)
+        self:SetMaxSpeed(TACTICAL_CONFIG.HUNT_SPEED)
+    end
+    
+    -- Move towards target while staying in cover
+    if IsValid(self.targetPlayer) then
+        local coverPos = self:FindOptimalCoverPosition(self.targetPlayer:GetPos())
+        if coverPos then
+            self:MoveToPosition(coverPos)
+        else
+            self:MoveToPosition(self.targetPlayer:GetPos())
+        end
+    end
+end
+
+function ENT:ExecuteEngage()
+    -- ENGAGE STATE: Combat engagement
+    if IsValid(self) then
+        self:SetDesiredSpeed(TACTICAL_CONFIG.ENGAGE_SPEED)
+        self:SetMaxSpeed(TACTICAL_CONFIG.ENGAGE_SPEED)
+    end
+    
+    -- Execute takedown if close enough
+    if self:CanExecuteTakedown() then
+        self:ExecuteTakedown()
+    else
+        -- Move closer to target
+        if IsValid(self.targetPlayer) then
+            self:MoveToPosition(self.targetPlayer:GetPos())
+        end
+    end
+end
+
+function ENT:ExecuteTakedown()
+    -- Execute silent takedown
+    if IsValid(self.targetPlayer) then
+        -- Damage the player
+        self.targetPlayer:TakeDamage(50, self, self)
+        
+        -- Play takedown sound
+        self:EmitSound("physics/body/body_medium_impact_hard" .. math.random(1, 6) .. ".wav", 80, 100, 0.5)
+        
+        -- Clear target
+        self.targetPlayer = nil
+        self:ChangeState(AI_STATES.DISAPPEAR)
+    end
+end
+
+function ENT:ExecuteDisappear()
+    -- DISAPPEAR STATE: Reset/retreat with smoke
+    if IsValid(self) then
+        self:SetDesiredSpeed(TACTICAL_CONFIG.DISAPPEAR_SPEED)
+        self:SetMaxSpeed(TACTICAL_CONFIG.DISAPPEAR_SPEED)
+    end
+    
+    -- Use smoke grenade if available
+    if self.smokeGrenades > 0 then
+        self:UseSmokeGrenade()
+    end
+    
+    -- Find escape route
+    local escapePos = self:FindEscapeRoute()
+    if escapePos then
+        self:MoveToPosition(escapePos)
+    end
+end
+
+function ENT:ExecuteWallClimbing()
+    -- WALL_CLIMBING STATE: Vertical traversal
+    if not self.isClimbing then
+        self:ChangeState(AI_STATES.PATROL)
+        return
+    end
+    
+    -- Continue climbing animation
+    self:PlayAnimation("crouch_walk")
+end
+
+function ENT:ExecuteEvasiveManeuver()
+    -- EVASIVE_MANEUVER STATE: Performing evasive movements
+    if #self.evasionTargets == 0 then
+        self:ChangeState(AI_STATES.PATROL)
+        return
+    end
+    
+    -- Perform evasive movement
+    local evasionPos = self.evasionTargets[1]
+    self:MoveToPosition(evasionPos)
+end
+
+function ENT:ExecuteTacticalSmoke()
+    -- TACTICAL_SMOKE STATE: Using smoke grenades tactically
+    if self.smokeGrenades <= 0 then
+        self:ChangeState(AI_STATES.ENGAGE)
+        return
+    end
+    
+    -- Use smoke grenade
+    self:UseSmokeGrenade()
+    self:ChangeState(AI_STATES.ENGAGE)
+end
+
+function ENT:ExecuteNightVisionHunt()
+    -- NIGHT_VISION_HUNT STATE: Enhanced hunting with night vision
+    if not self.nightVisionActive or not IsValid(self.targetPlayer) then
+        self:ChangeState(AI_STATES.HUNT)
+        return
+    end
+    
+    -- Enhanced hunting with night vision
+    self:ExecuteHunt()
+end
+
+function ENT:InvestigateTactically()
+    -- Move to last known position tactically
+    if self.lastKnownPosition and self.lastKnownPosition ~= Vector(0, 0, 0) then
+        self:MoveToPosition(self.lastKnownPosition)
+    end
+end
+
+function ENT:SearchArea()
+    -- Search the current area
+    local searchPos = self:GetPos() + VectorRand() * 200
+    self:MoveToPosition(searchPos)
+end
+
+function ENT:UseSmokeGrenade()
+    if self.smokeGrenades > 0 then
+        self.smokeGrenades = self.smokeGrenades - 1
+        
+        -- Create smoke effect
+        local smokePos = self:GetPos()
+        local effect = EffectData()
+        effect:SetOrigin(smokePos)
+        effect:SetScale(TACTICAL_CONFIG.SMOKE_RADIUS / 100)
+        util.Effect("smoke", effect)
+        
+        -- Play smoke sound
+        self:EmitSound("weapons/smokegrenade/sg_explode.wav", 80, 100, 0.5)
+    end
+end
     
     -- Aims weapon while sweeping corners
     self:AimWhileSweeping()
@@ -2844,6 +3197,140 @@ function ENT:BlindPlayer()
         net.WriteVector(self:GetPos())
         net.Send(self.targetPlayer)
     end
+end
+
+-- CRITICAL FIX: Add missing environment control and utility functions
+function ENT:ControlEnvironment()
+    -- Control lighting and environment
+    self:DisableNearbyLights()
+end
+
+function ENT:ExecutePsychologicalOps()
+    -- Execute psychological operations
+    if math.random() < 0.01 then
+        self:WhisperRadio()
+    end
+end
+
+function ENT:ExecuteEnhancedNavigation()
+    -- Enhanced navigation and evasion
+    if self.tacticalState == AI_STATES.HUNT then
+        self:UseVerticalTraversal()
+    end
+end
+
+function ENT:ExecuteNightVisionSystem()
+    -- Night vision system
+    if self.nightVisionActive then
+        -- Enhanced vision in darkness
+        local lightLevel = self:GetLightLevel(self:GetPos())
+        if lightLevel < 0.3 then
+            -- Activate night vision effects
+            self:PlayNVGHum()
+        end
+    end
+end
+
+function ENT:ExecuteEnhancedCombatMechanics()
+    -- Enhanced combat mechanics
+    if self.tacticalState == AI_STATES.ENGAGE then
+        self:FirePrecisionShots()
+    end
+end
+
+function ENT:BreakNearbyLights()
+    -- Break nearby light sources
+    local lights = ents.FindByClass("light*")
+    for _, light in pairs(lights) do
+        if IsValid(light) and self:GetPos():Distance(light:GetPos()) < TACTICAL_CONFIG.LIGHT_DISABLE_RANGE then
+            if light:GetClass() == "light" or light:GetClass() == "light_spot" then
+                light:Fire("TurnOff")
+            end
+        end
+    end
+end
+
+function ENT:FindVerticalPath()
+    -- Find vertical path for traversal
+    local currentPos = self:GetPos()
+    local searchRadius = 300
+    
+    for i = 1, 8 do
+        local angle = i * 45
+        local dir = Angle(0, angle, 0):Forward()
+        local testPos = currentPos + dir * searchRadius
+        
+        -- Check if there's a wall or climbable surface
+        local trace = util.TraceLine({
+            start = testPos,
+            endpos = testPos + Vector(0, 0, 100),
+            filter = self,
+            mask = MASK_SOLID
+        })
+        
+        if trace.Hit then
+            return testPos
+        end
+    end
+    
+    return nil
+end
+
+function ENT:PerformSilentTakedown()
+    -- Perform silent takedown
+    if IsValid(self.targetPlayer) then
+        -- Damage the player
+        self.targetPlayer:TakeDamage(100, self, self)
+        
+        -- Play takedown sound
+        self:EmitSound("physics/body/body_medium_impact_hard" .. math.random(1, 6) .. ".wav", 80, 100, 0.5)
+        
+        -- Clear target
+        self.targetPlayer = nil
+        self:ChangeState(AI_STATES.DISAPPEAR)
+    end
+end
+
+function ENT:FireSuppressedShot()
+    -- Fire suppressed shot
+    if CurTime() - self.lastShotTime < self.shotCooldown then return end
+    
+    if IsValid(self.targetPlayer) then
+        -- Calculate accuracy
+        local accuracy = self.combatAccuracy or 0.65
+        local spread = (1 - accuracy) * 10
+        
+        -- Fire shot
+        local bullet = {}
+        bullet.Num = 1
+        bullet.Src = self:GetPos() + Vector(0, 0, 50)
+        bullet.Dir = (self.targetPlayer:GetPos() - self:GetPos()):GetNormalized() + VectorRand() * spread
+        bullet.Spread = Vector(0, 0, 0)
+        bullet.Tracer = 0
+        bullet.Force = 5
+        bullet.Damage = 25
+        bullet.AmmoType = "Pistol"
+        
+        self:FireBullets(bullet)
+        
+        -- Play suppressed sound
+        self:EmitSound("weapons/silenced/sil-1.wav", 60, 100, 0.3)
+        
+        -- Update shot timer
+        self.lastShotTime = CurTime()
+        
+        -- Reduce accuracy for next shot
+        self.combatAccuracy = math.max(0.3, self.combatAccuracy - TACTICAL_CONFIG.ACCURACY_DECAY)
+    end
+end
+
+function ENT:AimWhileSweeping()
+    -- Aim weapon while sweeping corners
+    if not self.isAiming then
+        self.isAiming = true
+        self:PlayAnimation("aim")
+    end
+end
 end
 
 -- Disappear State Functions
