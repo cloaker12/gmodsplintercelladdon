@@ -96,7 +96,19 @@ local TACTICAL_CONFIG = {
     ACCURACY_DECAY = 0.1,           -- Accuracy decay per shot
     RECOVERY_TIME = 2.0,            -- Time to recover accuracy
     
-    -- New Navigation and Evasion
+    -- Enhanced Movement and Animation
+    PATROL_SPEED = 100,             -- Speed during patrol (slow pistol walk)
+    SUSPICIOUS_SPEED = 80,          -- Speed during suspicious state (crouch walk)
+    HUNT_SPEED = 120,               -- Speed during hunt (mix of walk/crouch)
+    ENGAGE_SPEED = 150,             -- Speed during engagement
+    DISAPPEAR_SPEED = 90,           -- Speed during disappear (crouch backwards)
+    
+    -- Suspicion System
+    SUSPICION_DECAY_RATE = 0.5,     -- Rate at which suspicion decreases
+    SUSPICION_INCREASE_RATE = 2.0,  -- Rate at which suspicion increases
+    MAX_SUSPICION = 100,            -- Maximum suspicion level
+    
+    -- Navigation and Evasion
     NAVIGATION_UPDATE_RATE = 0.2,   -- How often to update navigation
     EVASION_RADIUS = 600,           -- Radius to detect threats for evasion
     WALL_CLIMB_HEIGHT = 200,        -- Maximum height for wall climbing
@@ -127,18 +139,17 @@ local TACTICAL_CONFIG = {
     GRENADE_COOLDOWN = 20,          -- Cooldown between grenade uses
 }
 
--- AI States
+-- AI States - Enhanced for Splinter Cell Tactical Behavior
 local AI_STATES = {
-    IDLE_RECON = 1,        -- Patrolling and gathering intel
-    INVESTIGATE = 2,       -- Moving toward sound/light sources
-    STALKING = 3,          -- Tracking target from cover
-    AMBUSH = 4,            -- Executing silent takedown
-    ENGAGE_SUPPRESSED = 5, -- Firing from cover
-    RETREAT_RESET = 6,     -- Breaking contact and repositioning
-    WALL_CLIMBING = 7,     -- Climbing walls for tactical advantage
-    EVASIVE_MANEUVER = 8,  -- Performing evasive movements
-    TACTICAL_SMOKE = 9,    -- Using smoke grenades tactically
-    NIGHT_VISION_HUNT = 10 -- Enhanced hunting with night vision
+    PATROL = 1,           -- Low alert, patrolling with stealth movement
+    SUSPICIOUS = 2,       -- Searching, investigating noises
+    HUNT = 3,             -- High alert, tactical stalking
+    ENGAGE = 4,           -- Combat engagement
+    DISAPPEAR = 5,        -- Reset/retreat with smoke
+    WALL_CLIMBING = 6,    -- Vertical traversal
+    EVASIVE_MANEUVER = 7, -- Performing evasive movements
+    TACTICAL_SMOKE = 8,   -- Using smoke grenades tactically
+    NIGHT_VISION_HUNT = 9 -- Enhanced hunting with night vision
 }
 
 function ENT:Initialize()
@@ -159,7 +170,7 @@ function ENT:Initialize()
     self.lastAccuracyUpdate = CurTime()
     
     -- Initialize tactical variables
-    self.tacticalState = AI_STATES.IDLE_RECON
+    self.tacticalState = AI_STATES.PATROL
     self.targetPlayer = nil
     self.lastKnownPosition = Vector(0, 0, 0)
     self.lastStateChange = CurTime()
@@ -169,6 +180,21 @@ function ENT:Initialize()
     self.currentObjective = "patrol"
     self.currentPath = nil
     self.targetPosition = nil
+    
+    -- Enhanced tactical variables
+    self.suspicionMeter = 0
+    self.lastSuspicionUpdate = CurTime()
+    self.isCrouching = false
+    self.isAiming = false
+    self.lastMovementChange = CurTime()
+    self.circleDirection = 1  -- 1 for clockwise, -1 for counter-clockwise
+    self.lastCircleUpdate = CurTime()
+    self.rappelling = false
+    self.lastRappelAttempt = 0
+    self.fakeNoiseTimer = 0
+    self.lastFakeNoise = 0
+    self.playerTrackLost = false
+    self.lastPlayerSight = 0
     
     -- Enhanced Navigation and Evasion
     self.navigationUpdateTimer = 0
@@ -291,13 +317,25 @@ function ENT:PlayAnimation(animationName)
     if sequence and sequence > 0 then
         self:SetSequence(sequence)
     else
-        -- Fallback sequences for common animations
+        -- Fallback sequences for common animations with HL2 pistol animations
         if animationName == "idle" then
+            -- ACT_IDLE_PISTOL - pistol idle animation
             self:SetSequence(self:LookupSequence("idle") or 0)
         elseif animationName == "walk" then
+            -- ACT_WALK_PISTOL - slow pistol walk animation
             self:SetSequence(self:LookupSequence("walk") or self:LookupSequence("run") or 0)
+        elseif animationName == "crouch_walk" then
+            -- ACT_WALK_CROUCH_PISTOL - pistol crouch-walk animation
+            self:SetSequence(self:LookupSequence("crouch_walk") or self:LookupSequence("walk") or 0)
         elseif animationName == "aim" then
+            -- Aiming stance
             self:SetSequence(self:LookupSequence("gesture_range_attack") or 0)
+        elseif animationName == "reload" then
+            -- Reload animation
+            self:SetSequence(self:LookupSequence("gesture_reload") or 0)
+        elseif animationName == "run" then
+            -- ACT_RUN_PISTOL - only in emergencies
+            self:SetSequence(self:LookupSequence("run") or self:LookupSequence("walk") or 0)
         end
     end
     
@@ -313,10 +351,10 @@ function ENT:UpdateAnimation()
     local wasMoving = self.isMoving
     self.isMoving = velocity > 10
     
-    -- Update animation based on movement
+    -- Update animation based on movement and tactical state
     if self.isMoving then
-        if not wasMoving or self.currentAnimation ~= "walk" then
-            self:PlayAnimation("walk")
+        if not wasMoving or self.currentAnimation ~= self:GetMovementAnimation() then
+            self:PlayAnimation(self:GetMovementAnimation())
         end
         self.lastMoveTime = currentTime
     else
@@ -331,6 +369,25 @@ function ENT:UpdateAnimation()
     
     -- Update weapon position
     self:UpdateWeaponPosition()
+end
+
+function ENT:GetMovementAnimation()
+    -- Return appropriate animation based on tactical state and conditions
+    if self.tacticalState == AI_STATES.PATROL then
+        return "walk"  -- ACT_WALK_PISTOL
+    elseif self.tacticalState == AI_STATES.SUSPICIOUS then
+        return self.isCrouching and "crouch_walk" or "walk"  -- ACT_WALK_CROUCH_PISTOL or ACT_WALK_PISTOL
+    elseif self.tacticalState == AI_STATES.HUNT then
+        -- Mix of pistol walk + crouch-walk depending on cover
+        local lightLevel = self:GetLightLevel(self:GetPos())
+        return lightLevel < 0.3 and "walk" or "crouch_walk"
+    elseif self.tacticalState == AI_STATES.ENGAGE then
+        return self.isCrouching and "crouch_walk" or "walk"
+    elseif self.tacticalState == AI_STATES.DISAPPEAR then
+        return "crouch_walk"  -- Crouch-walk backwards
+    else
+        return "walk"  -- Default
+    end
 end
 
 function ENT:SetupTacticalAI()
@@ -368,18 +425,16 @@ function ENT:ExecuteTacticalAI()
     self:UpdateAnimation()
     
     -- Execute current state behavior
-    if self.tacticalState == AI_STATES.IDLE_RECON then
-        self:ExecuteIdleRecon()
-    elseif self.tacticalState == AI_STATES.INVESTIGATE then
-        self:ExecuteInvestigate()
-    elseif self.tacticalState == AI_STATES.STALKING then
-        self:ExecuteStalking()
-    elseif self.tacticalState == AI_STATES.AMBUSH then
-        self:ExecuteAmbush()
-    elseif self.tacticalState == AI_STATES.ENGAGE_SUPPRESSED then
-        self:ExecuteEngageSuppressed()
-    elseif self.tacticalState == AI_STATES.RETREAT_RESET then
-        self:ExecuteRetreatReset()
+    if self.tacticalState == AI_STATES.PATROL then
+        self:ExecutePatrol()
+    elseif self.tacticalState == AI_STATES.SUSPICIOUS then
+        self:ExecuteSuspicious()
+    elseif self.tacticalState == AI_STATES.HUNT then
+        self:ExecuteHunt()
+    elseif self.tacticalState == AI_STATES.ENGAGE then
+        self:ExecuteEngage()
+    elseif self.tacticalState == AI_STATES.DISAPPEAR then
+        self:ExecuteDisappear()
     elseif self.tacticalState == AI_STATES.WALL_CLIMBING then
         self:ExecuteWallClimbing()
     elseif self.tacticalState == AI_STATES.EVASIVE_MANEUVER then
@@ -422,49 +477,45 @@ function ENT:UpdateTacticalState()
     local currentTime = CurTime()
     
     -- Check for state transition conditions
-    if self.tacticalState == AI_STATES.IDLE_RECON then
+    if self.tacticalState == AI_STATES.PATROL then
         if self:DetectPlayerActivity() then
-            self:ChangeState(AI_STATES.INVESTIGATE)
+            self:ChangeState(AI_STATES.SUSPICIOUS)
         end
-    elseif self.tacticalState == AI_STATES.INVESTIGATE then
+    elseif self.tacticalState == AI_STATES.SUSPICIOUS then
         if self:HasVisualContact() then
-            self:ChangeState(AI_STATES.STALKING)
+            self:ChangeState(AI_STATES.HUNT)
         elseif currentTime - self.lastStateChange > TACTICAL_CONFIG.PATIENCE_TIMER then
-            self:ChangeState(AI_STATES.IDLE_RECON)
+            self:ChangeState(AI_STATES.PATROL)
         end
-    elseif self.tacticalState == AI_STATES.STALKING then
+    elseif self.tacticalState == AI_STATES.HUNT then
         if self:CanExecuteTakedown() then
-            self:ChangeState(AI_STATES.AMBUSH)
+            self:ChangeState(AI_STATES.ENGAGE)
         elseif self:IsCompromised() then
-            self:ChangeState(AI_STATES.ENGAGE_SUPPRESSED)
+            self:ChangeState(AI_STATES.DISAPPEAR)
         end
-    elseif self.tacticalState == AI_STATES.AMBUSH then
-        if self:IsTakedownComplete() then
-            self:ChangeState(AI_STATES.RETREAT_RESET)
-        end
-    elseif self.tacticalState == AI_STATES.ENGAGE_SUPPRESSED then
+    elseif self.tacticalState == AI_STATES.ENGAGE then
         if self:ShouldRetreat() then
-            self:ChangeState(AI_STATES.RETREAT_RESET)
+            self:ChangeState(AI_STATES.DISAPPEAR)
         end
-    elseif self.tacticalState == AI_STATES.RETREAT_RESET then
+    elseif self.tacticalState == AI_STATES.DISAPPEAR then
         if self:IsSafeToReset() then
-            self:ChangeState(AI_STATES.IDLE_RECON)
+            self:ChangeState(AI_STATES.PATROL)
         end
     elseif self.tacticalState == AI_STATES.WALL_CLIMBING then
         if not self.isClimbing then
-            self:ChangeState(AI_STATES.IDLE_RECON)
+            self:ChangeState(AI_STATES.PATROL)
         end
     elseif self.tacticalState == AI_STATES.EVASIVE_MANEUVER then
         if #self.evasionTargets == 0 then
-            self:ChangeState(AI_STATES.IDLE_RECON)
+            self:ChangeState(AI_STATES.PATROL)
         end
     elseif self.tacticalState == AI_STATES.TACTICAL_SMOKE then
         if self.smokeGrenades <= 0 then
-            self:ChangeState(AI_STATES.ENGAGE_SUPPRESSED)
+            self:ChangeState(AI_STATES.ENGAGE)
         end
     elseif self.tacticalState == AI_STATES.NIGHT_VISION_HUNT then
         if not self.nightVisionActive or not IsValid(self.targetPlayer) then
-            self:ChangeState(AI_STATES.STALKING)
+            self:ChangeState(AI_STATES.HUNT)
         end
     end
 end
@@ -479,22 +530,19 @@ end
 
 function ENT:OnStateChange(newState)
     -- Handle state-specific initialization
-    if newState == AI_STATES.IDLE_RECON then
+    if newState == AI_STATES.PATROL then
         self.currentObjective = "patrol"
         self:FindPatrolRoute()
-    elseif newState == AI_STATES.INVESTIGATE then
+    elseif newState == AI_STATES.SUSPICIOUS then
         self.currentObjective = "investigate"
         self:MoveToLastKnownPosition()
-    elseif newState == AI_STATES.STALKING then
+    elseif newState == AI_STATES.HUNT then
         self.currentObjective = "stalk"
         self:FindCoverPosition()
-    elseif newState == AI_STATES.AMBUSH then
+    elseif newState == AI_STATES.ENGAGE then
         self.currentObjective = "execute_takedown"
         self:PrepareAmbush()
-    elseif newState == AI_STATES.ENGAGE_SUPPRESSED then
-        self.currentObjective = "suppress"
-        self:FindCoverAndEngage()
-    elseif newState == AI_STATES.RETREAT_RESET then
+    elseif newState == AI_STATES.DISAPPEAR then
         self.currentObjective = "retreat"
         self:ExecuteTacticalRetreat()
     elseif newState == AI_STATES.WALL_CLIMBING then
@@ -598,7 +646,14 @@ function ENT:PrepareNightVisionHunt()
 end
 
 -- State Execution Functions
-function ENT:ExecuteIdleRecon()
+function ENT:ExecutePatrol()
+    -- PATROL STATE: Low alert, stealth movement
+    -- Movement Style: Slow HL2 pistol walk anim (ACT_WALK_PISTOL)
+    -- Occasionally pauses in pistol idle anim (ACT_IDLE_PISTOL)
+    
+    -- Set movement speed for patrol
+    self:SetMaxSpeed(TACTICAL_CONFIG.PATROL_SPEED)
+    
     -- Handle current path movement
     if self.currentPath and self.currentPath:IsValid() then
         self.currentPath:Update(self)
@@ -611,10 +666,26 @@ function ENT:ExecuteIdleRecon()
         self:FindNextPatrolPoint()
     end
     
-    -- Disable nearby light sources
+    -- Atmosphere: NVG hum when scanning dark areas
+    if math.random() < 0.01 then
+        self:PlayNVGHum()
+    end
+    
+    -- Quiet radio whispers
+    if math.random() < 0.005 then
+        self:WhisperRadio()
+    end
+    
+    -- Breaks light sources to create cover
     self:DisableNearbyLights()
     
-    -- Listen for player activity (handled in UpdateTacticalState)
+    -- Keeps to shadows, walls, and alternative routes
+    self:PreferShadowsAndWalls()
+    
+    -- Occasionally pause for scanning
+    if math.random() < 0.02 then
+        self:PauseForScanning()
+    end
 end
 
 function ENT:IsTakedownComplete()
@@ -622,7 +693,26 @@ function ENT:IsTakedownComplete()
     return not self:IsMoving() and self.targetPlayer == nil
 end
 
-function ENT:ExecuteInvestigate()
+function ENT:ExecuteSuspicious()
+    -- SUSPICIOUS STATE: Searching, investigating noises
+    -- Movement Style: HL2 pistol crouch-walk anim (ACT_WALK_CROUCH_PISTOL)
+    -- Alternates between crouch-walk and pistol idle
+    -- Aims weapon while sweeping corners
+    
+    -- Set movement speed for suspicious state
+    self:SetMaxSpeed(TACTICAL_CONFIG.SUSPICIOUS_SPEED)
+    
+    -- Build Suspicion Meter
+    self.suspicionMeter = self.suspicionMeter or 0
+    self.suspicionMeter = math.min(TACTICAL_CONFIG.MAX_SUSPICION, 
+        self.suspicionMeter + TACTICAL_CONFIG.SUSPICION_INCREASE_RATE * FrameTime())
+    
+    -- Check if suspicion reaches 100 → Hunt Mode
+    if self.suspicionMeter >= TACTICAL_CONFIG.MAX_SUSPICION then
+        self:ChangeState(AI_STATES.HUNT)
+        return
+    end
+    
     -- Handle current path movement
     if self.currentPath and self.currentPath:IsValid() then
         self.currentPath:Update(self)
@@ -635,9 +725,32 @@ function ENT:ExecuteInvestigate()
             self:SearchArea()
         end
     end
+    
+    -- Behavior: Investigates noise sources tactically (doesn't rush head-on)
+    self:InvestigateTactically()
+    
+    -- Flashes NVG on/off while scanning
+    if math.random() < 0.03 then
+        self:FlashNVG()
+    end
+    
+    -- Aims weapon while sweeping corners
+    self:AimWhileSweeping()
+    
+    -- Alternates between crouch-walk and pistol idle
+    if math.random() < 0.1 then
+        self:AlternateCrouchAndIdle()
+    end
 end
 
-function ENT:ExecuteStalking()
+function ENT:ExecuteHunt()
+    -- HUNT STATE: High alert, tactical stalking
+    -- Movement Style: Mix of pistol walk + crouch-walk depending on cover
+    -- Uses walls, vents, and vertical traversal to flank
+    
+    -- Set movement speed for hunt
+    self:SetMaxSpeed(TACTICAL_CONFIG.HUNT_SPEED)
+    
     -- Track target while maintaining cover
     if IsValid(self.targetPlayer) then
         local targetPos = self.targetPlayer:GetPos()
@@ -650,31 +763,104 @@ function ENT:ExecuteStalking()
         -- Maintain stealth level
         self:MaintainStealth()
     end
+    
+    -- Behavior: Uses cover-to-cover movement (never open-field rushing)
+    self:UseCoverToCoverMovement()
+    
+    -- Tries to circle the player instead of beelining
+    self:CirclePlayer()
+    
+    -- Can rappel from ceilings/ledges for ambush
+    if math.random() < 0.02 then
+        self:AttemptRappel()
+    end
+    
+    -- Will throw a flashbang or EMP if player holds a chokepoint
+    if self:IsPlayerInChokepoint() then
+        self:ThrowTacticalGrenade()
+    end
+    
+    -- Mix of pistol walk + crouch-walk depending on cover
+    self:AdaptMovementToCover()
+    
+    -- Uses walls, vents, and vertical traversal to flank
+    self:UseVerticalTraversal()
 end
 
-function ENT:ExecuteAmbush()
-    -- Execute silent takedown
+function ENT:ExecuteEngage()
+    -- ENGAGE STATE: Combat engagement
+    -- Weapons: Suppressed pistol or SMG only
+    -- Movement Style: Fires from pistol idle anim stance
+    -- Crouch-walks during gunfights for smaller hitbox
+    -- Dodges side-to-side while shooting (combat evasive walk)
+    
+    -- Set movement speed for engagement
+    self:SetMaxSpeed(TACTICAL_CONFIG.ENGAGE_SPEED)
+    
+    -- Execute silent takedown if possible
     if IsValid(self.targetPlayer) and self:CanExecuteTakedown() then
         self:PerformSilentTakedown()
+        return
     end
-end
-
-function ENT:ExecuteEngageSuppressed()
-    -- Fire from cover with suppressed weapon
+    
+    -- Behavior: Prefers stealth melee takedown if behind the player
+    if self:IsBehindPlayer() then
+        self:AttemptStealthTakedown()
+        return
+    end
+    
+    -- Aims for quick precision shots, not spray
     if IsValid(self.targetPlayer) then
-        self:FireSuppressedShot()
+        self:FirePrecisionShots()
+    end
+    
+    -- Fires from pistol idle anim stance
+    self:FireFromIdleStance()
+    
+    -- Crouch-walks during gunfights for smaller hitbox
+    self:CrouchDuringGunfight()
+    
+    -- Dodges side-to-side while shooting (combat evasive walk)
+    self:DodgeWhileShooting()
+    
+    -- Can blind player by breaking lights or using gadgets
+    if math.random() < 0.05 then
+        self:BlindPlayer()
     end
 end
 
-function ENT:ExecuteRetreatReset()
+function ENT:ExecuteDisappear()
+    -- DISAPPEAR STATE: Reset/retreat with smoke
+    -- Movement Style: Deploys smoke → crouch-walks backwards into shadows
+    -- Resets into patrol mode if player loses track
+    
+    -- Set movement speed for disappear
+    self:SetMaxSpeed(TACTICAL_CONFIG.DISAPPEAR_SPEED)
+    
     -- Handle path movement for retreat
     if self.currentPath and self.currentPath:IsValid() then
         self.currentPath:Update(self)
     end
     
-    -- Deploy smoke and break contact
+    -- Behavior: Deploys smoke → crouch-walks backwards into shadows
     if CurTime() - self.smokeLastUsed > TACTICAL_CONFIG.SMOKE_COOLDOWN then
         self:DeploySmoke()
+    end
+    
+    -- Crouch-walks backwards into shadows
+    self:CrouchWalkBackwards()
+    
+    -- May leave fake noise (thrown object) to mislead
+    if math.random() < 0.1 then
+        self:CreateFakeNoise()
+    end
+    
+    -- Will not re-engage immediately; stalks again for ambush
+    self:ResetForAmbush()
+    
+    -- Resets into patrol mode if player loses track
+    if self:HasPlayerLostTrack() then
+        self:ChangeState(AI_STATES.PATROL)
     end
 end
 
@@ -700,7 +886,7 @@ function ENT:ExecuteEvasiveManeuver()
         self:PerformEvasiveMovement()
     else
         -- No immediate threats, return to normal behavior
-        self:ChangeState(AI_STATES.IDLE_RECON)
+        self:ChangeState(AI_STATES.PATROL)
     end
 end
 
@@ -710,7 +896,7 @@ function ENT:ExecuteTacticalSmoke()
         self:DeployTacticalSmoke()
     else
         -- No smoke grenades available, return to previous state
-        self:ChangeState(AI_STATES.ENGAGE_SUPPRESSED)
+        self:ChangeState(AI_STATES.ENGAGE)
     end
 end
 
@@ -720,7 +906,7 @@ function ENT:ExecuteNightVisionHunt()
         self:PerformNightVisionHunt()
     else
         -- Night vision not available, use normal hunting
-        self:ChangeState(AI_STATES.STALKING)
+        self:ChangeState(AI_STATES.HUNT)
     end
 end
 
@@ -1394,7 +1580,7 @@ function ENT:BodyUpdate()
     self:SetPoseParameter("move_y", 0)
     
     -- Set pose parameters for aiming
-    if self.tacticalState == AI_STATES.ENGAGE_SUPPRESSED and IsValid(self.targetPlayer) then
+    if self.tacticalState == AI_STATES.ENGAGE and IsValid(self.targetPlayer) then
         local aimDir = (self.targetPlayer:GetPos() - self:GetPos()):GetNormalized()
         local aimAng = aimDir:Angle()
         local yawDiff = math.AngleDifference(aimAng.yaw, self:GetAngles().yaw)
@@ -1432,8 +1618,8 @@ function ENT:OnTakeDamage(dmg)
         self.targetPlayer = attacker
         
         -- Become more aggressive when damaged
-        if self.tacticalState == AI_STATES.IDLE_RECON then
-            self:ChangeState(AI_STATES.INVESTIGATE)
+        if self.tacticalState == AI_STATES.PATROL then
+            self:ChangeState(AI_STATES.SUSPICIOUS)
         end
     end
     
@@ -1532,8 +1718,8 @@ function ENT:HandleImmediateThreats()
             -- Immediate threat detection
             if distance < 50 then
                 -- Player is very close, immediate response needed
-                if self.tacticalState == AI_STATES.IDLE_RECON then
-                    self:ChangeState(AI_STATES.AMBUSH)
+                if self.tacticalState == AI_STATES.PATROL then
+                    self:ChangeState(AI_STATES.SUSPICIOUS)
                 end
                 self.targetPlayer = player
                 self.lastKnownPosition = player:GetPos()
@@ -1544,7 +1730,7 @@ function ENT:HandleImmediateThreats()
             if self:IsPlayerLookingAtMe(player) then
                 self.stealthLevel = math.max(0.0, self.stealthLevel - 0.05)
                 if self.stealthLevel < 0.3 then
-                    self:ChangeState(AI_STATES.ENGAGE_SUPPRESSED)
+                    self:ChangeState(AI_STATES.ENGAGE)
                 end
             end
         end
@@ -1588,12 +1774,12 @@ function ENT:Touch(entity)
     
     -- Handle player collision
     if entity:IsPlayer() then
-        if self.tacticalState == AI_STATES.AMBUSH then
+        if self.tacticalState == AI_STATES.ENGAGE then
             -- Execute immediate takedown
             self:PerformSilentTakedown()
-        elseif self.tacticalState == AI_STATES.STALKING then
+        elseif self.tacticalState == AI_STATES.HUNT then
             -- Player bumped into us, become aggressive
-            self:ChangeState(AI_STATES.ENGAGE_SUPPRESSED)
+            self:ChangeState(AI_STATES.ENGAGE)
         end
     end
     
@@ -1610,13 +1796,13 @@ function ENT:Use(activator, caller)
     -- Handle player interaction
     if IsValid(activator) and activator:IsPlayer() then
         -- Player is trying to interact with us
-        if self.tacticalState == AI_STATES.IDLE_RECON then
+        if self.tacticalState == AI_STATES.PATROL then
             -- Surprise attack
             self.targetPlayer = activator
-            self:ChangeState(AI_STATES.AMBUSH)
+            self:ChangeState(AI_STATES.SUSPICIOUS)
         else
             -- Defensive response
-            self:ChangeState(AI_STATES.ENGAGE_SUPPRESSED)
+            self:ChangeState(AI_STATES.ENGAGE)
         end
     end
 end
@@ -1634,8 +1820,8 @@ function ENT:OnInjured(dmg)
         self.lastKnownPosition = attacker:GetPos()
         
         -- Become more aggressive when injured
-        if self.tacticalState == AI_STATES.IDLE_RECON or self.tacticalState == AI_STATES.INVESTIGATE then
-            self:ChangeState(AI_STATES.ENGAGE_SUPPRESSED)
+        if self.tacticalState == AI_STATES.PATROL or self.tacticalState == AI_STATES.SUSPICIOUS then
+            self:ChangeState(AI_STATES.ENGAGE)
         end
     end
     
@@ -1712,7 +1898,7 @@ function ENT:FindWallToClimb()
     end
     
     -- No climbable wall found, return to previous state
-    self:ChangeState(AI_STATES.IDLE_RECON)
+    self:ChangeState(AI_STATES.PATROL)
 end
 
 function ENT:IsWallClimbable(wallPos, wallNormal)
@@ -1809,9 +1995,9 @@ function ENT:FinishWallClimb()
     
     -- Return to previous state or find new objective
     if self.targetPlayer then
-        self:ChangeState(AI_STATES.STALKING)
+        self:ChangeState(AI_STATES.HUNT)
     else
-        self:ChangeState(AI_STATES.IDLE_RECON)
+        self:ChangeState(AI_STATES.PATROL)
     end
 end
 
@@ -1935,7 +2121,7 @@ function ENT:DeployTacticalSmoke()
     self:SetNWInt("smokeGrenades", self.smokeGrenades)
     
     -- Return to previous state
-    self:ChangeState(AI_STATES.ENGAGE_SUPPRESSED)
+    self:ChangeState(AI_STATES.ENGAGE)
 end
 
 function ENT:CreateSmokeEffect(position)
@@ -2131,5 +2317,568 @@ function ENT:FireSuppressedShot()
         -- Reduce accuracy and stealth
         self.accuracy = math.max(0.3, self.accuracy - TACTICAL_CONFIG.ACCURACY_DECAY)
         self.stealthLevel = math.max(0.0, self.stealthLevel - 0.1)
+    end
+end
+
+-- Enhanced Tactical Behavior Functions
+-- Supporting functions for the new Splinter Cell AI states
+
+-- Patrol State Functions
+function ENT:PlayNVGHum()
+    -- Play NVG hum sound when scanning dark areas
+    self:EmitSound("ambient/machines/steam_release_1.wav", 30, 80)
+    
+    -- Create visual effect for NVG
+    local effect = EffectData()
+    effect:SetOrigin(self:GetPos() + Vector(0, 0, 50))
+    effect:SetScale(0.5)
+    util.Effect("cball_bounce", effect)
+end
+
+function ENT:WhisperRadio()
+    -- Quiet radio whispers for atmosphere
+    local whispers = {
+        "Target area clear...",
+        "Maintaining position...",
+        "No activity detected...",
+        "Continuing patrol..."
+    }
+    
+    local whisper = whispers[math.random(1, #whispers)]
+    
+    -- Send whisper to nearby players
+    local players = player.GetAll()
+    for _, player in pairs(players) do
+        if IsValid(player) and player:Alive() then
+            local distance = self:GetPos():Distance(player:GetPos())
+            if distance < TACTICAL_CONFIG.WHISPER_RADIUS then
+                net.Start("SplinterCellWhisper")
+                net.WriteString(whisper)
+                net.Send(player)
+            end
+        end
+    end
+end
+
+function ENT:PreferShadowsAndWalls()
+    -- Prefer movement along walls and in shadows
+    local currentPos = self:GetPos()
+    local lightLevel = self:GetLightLevel(currentPos)
+    
+    -- If in bright light, try to move to shadows
+    if lightLevel > 0.7 then
+        local shadowPos = self:FindNearestShadow()
+        if shadowPos then
+            self:MoveToPosition(shadowPos)
+        end
+    end
+    
+    -- Prefer movement along walls
+    self:PreferWallMovement()
+end
+
+function ENT:PauseForScanning()
+    -- Pause movement and scan the area
+    self:PlayAnimation("idle")
+    
+    -- Look around slowly
+    local currentAngles = self:GetAngles()
+    local newYaw = currentAngles.yaw + math.random(-45, 45)
+    self:SetAngles(Angle(currentAngles.pitch, newYaw, currentAngles.roll))
+    
+    -- Play scanning sound
+    self:EmitSound("ambient/machines/steam_release_2.wav", 25, 90)
+end
+
+-- Suspicious State Functions
+function ENT:InvestigateTactically()
+    -- Investigate noise sources without rushing head-on
+    if self.lastKnownPosition and self.lastKnownPosition ~= Vector(0, 0, 0) then
+        local distance = self:GetPos():Distance(self.lastKnownPosition)
+        
+        -- Approach from cover if possible
+        if distance > 100 then
+            local coverPos = self:FindCoverApproach(self.lastKnownPosition)
+            if coverPos then
+                self:MoveToPosition(coverPos)
+            else
+                self:MoveToPosition(self.lastKnownPosition)
+            end
+        end
+    end
+end
+
+function ENT:FlashNVG()
+    -- Flash NVG on/off while scanning
+    self.nightVisionActive = not self.nightVisionActive
+    self:SetNWBool("nightVisionActive", self.nightVisionActive)
+    
+    -- Create flash effect
+    local effect = EffectData()
+    effect:SetOrigin(self:GetPos() + Vector(0, 0, 50))
+    effect:SetScale(1.0)
+    util.Effect("cball_bounce", effect)
+    
+    -- Play NVG toggle sound
+    self:EmitSound("buttons/button14.wav", 40, 100)
+end
+
+function ENT:AimWhileSweeping()
+    -- Aim weapon while sweeping corners
+    if not self.isAiming then
+        self.isAiming = true
+        self:PlayAnimation("aim")
+    end
+    
+    -- Sweep weapon left and right
+    local currentAngles = self:GetAngles()
+    local sweepAmount = math.sin(CurTime() * 2) * 30
+    self:SetAngles(Angle(currentAngles.pitch, currentAngles.yaw + sweepAmount, currentAngles.roll))
+end
+
+function ENT:AlternateCrouchAndIdle()
+    -- Alternate between crouch-walk and pistol idle
+    if not self.isCrouching then
+        self.isCrouching = true
+        self:PlayAnimation("crouch_walk")
+    else
+        self.isCrouching = false
+        self:PlayAnimation("idle")
+    end
+end
+
+-- Hunt State Functions
+function ENT:UseCoverToCoverMovement()
+    -- Use cover-to-cover movement instead of open-field rushing
+    if IsValid(self.targetPlayer) then
+        local targetPos = self.targetPlayer:GetPos()
+        local currentPos = self:GetPos()
+        
+        -- Find next cover position
+        local nextCover = self:FindNextCoverPosition(targetPos)
+        if nextCover then
+            self:MoveToPosition(nextCover)
+        end
+    end
+end
+
+function ENT:CirclePlayer()
+    -- Try to circle the player instead of beelining
+    if IsValid(self.targetPlayer) then
+        local currentTime = CurTime()
+        if currentTime - self.lastCircleUpdate > 2.0 then
+            -- Change circle direction occasionally
+            if math.random() < 0.3 then
+                self.circleDirection = self.circleDirection * -1
+            end
+            self.lastCircleUpdate = currentTime
+        end
+        
+        local targetPos = self.targetPlayer:GetPos()
+        local myPos = self:GetPos()
+        local direction = (myPos - targetPos):GetNormalized()
+        
+        -- Calculate perpendicular direction for circling
+        local perpendicular = Vector(-direction.y, direction.x, 0) * self.circleDirection
+        local circlePos = targetPos + direction * 200 + perpendicular * 150
+        
+        self:MoveToPosition(circlePos)
+    end
+end
+
+function ENT:AttemptRappel()
+    -- Attempt to rappel from ceilings/ledges for ambush
+    if CurTime() - self.lastRappelAttempt < 10.0 then return end
+    
+    local rappelPos = self:FindRappelPosition()
+    if rappelPos then
+        self.rappelling = true
+        self.lastRappelAttempt = CurTime()
+        self:MoveToPosition(rappelPos)
+        
+        -- Create rappel effect
+        local effect = EffectData()
+        effect:SetOrigin(rappelPos)
+        effect:SetScale(1.0)
+        util.Effect("cball_bounce", effect)
+    end
+end
+
+function ENT:IsPlayerInChokepoint()
+    -- Check if player is in a chokepoint
+    if not IsValid(self.targetPlayer) then return false end
+    
+    local targetPos = self.targetPlayer:GetPos()
+    local exits = self:FindExits(targetPos)
+    
+    -- If there are few exits, it's a chokepoint
+    return #exits <= 2
+end
+
+function ENT:ThrowTacticalGrenade()
+    -- Throw flashbang or EMP if player holds a chokepoint
+    if self.grenadesAvailable <= 0 then return end
+    
+    if IsValid(self.targetPlayer) then
+        local grenadeType = math.random() < 0.5 and "flashbang" or "emp"
+        self:ThrowGrenade(grenadeType, self.targetPlayer:GetPos())
+        self.grenadesAvailable = self.grenadesAvailable - 1
+        self:SetNWInt("grenadesAvailable", self.grenadesAvailable)
+    end
+end
+
+function ENT:AdaptMovementToCover()
+    -- Mix of pistol walk + crouch-walk depending on cover
+    local lightLevel = self:GetLightLevel(self:GetPos())
+    
+    if lightLevel < 0.3 then
+        -- In shadows, use normal walk
+        if self.isCrouching then
+            self.isCrouching = false
+            self:PlayAnimation("walk")
+        end
+    else
+        -- In light, use crouch walk
+        if not self.isCrouching then
+            self.isCrouching = true
+            self:PlayAnimation("crouch_walk")
+        end
+    end
+end
+
+function ENT:UseVerticalTraversal()
+    -- Use walls, vents, and vertical traversal to flank
+    if math.random() < 0.01 then
+        -- Try to find vertical path
+        local verticalPath = self:FindVerticalPath()
+        if verticalPath then
+            self:MoveToPosition(verticalPath)
+        end
+    end
+end
+
+-- Engage State Functions
+function ENT:IsBehindPlayer()
+    -- Check if we're behind the player
+    if not IsValid(self.targetPlayer) then return false end
+    
+    local playerForward = self.targetPlayer:GetForward()
+    local toMe = (self:GetPos() - self.targetPlayer:GetPos()):GetNormalized()
+    local dot = playerForward:Dot(toMe)
+    
+    return dot < -0.7  -- Behind the player
+end
+
+function ENT:AttemptStealthTakedown()
+    -- Attempt stealth melee takedown from behind
+    if not IsValid(self.targetPlayer) then return end
+    
+    local distance = self:GetPos():Distance(self.targetPlayer:GetPos())
+    if distance < TACTICAL_CONFIG.TAKEDOWN_RANGE then
+        -- Perform stealth takedown
+        self:PerformSilentTakedown()
+    else
+        -- Move closer for takedown
+        self:MoveToPosition(self.targetPlayer:GetPos())
+    end
+end
+
+function ENT:FirePrecisionShots()
+    -- Fire precision shots instead of spray
+    if CurTime() - self.lastShotTime < 0.8 then return end
+    
+    if IsValid(self.targetPlayer) then
+        self:FireSuppressedShot()
+    end
+end
+
+function ENT:FireFromIdleStance()
+    -- Fire from pistol idle anim stance
+    if not self.isAiming then
+        self.isAiming = true
+        self:PlayAnimation("aim")
+    end
+end
+
+function ENT:CrouchDuringGunfight()
+    -- Crouch-walk during gunfights for smaller hitbox
+    if not self.isCrouching then
+        self.isCrouching = true
+        self:PlayAnimation("crouch_walk")
+    end
+end
+
+function ENT:DodgeWhileShooting()
+    -- Dodge side-to-side while shooting
+    local dodgeAmount = math.sin(CurTime() * 4) * 20
+    local currentPos = self:GetPos()
+    local dodgePos = currentPos + Vector(dodgeAmount, 0, 0)
+    
+    self:SetLastPosition(dodgePos)
+end
+
+function ENT:BlindPlayer()
+    -- Blind player by breaking lights or using gadgets
+    if IsValid(self.targetPlayer) then
+        -- Break nearby lights
+        self:BreakNearbyLights()
+        
+        -- Flash goggles effect
+        net.Start("SplinterCellFlash")
+        net.WriteVector(self:GetPos())
+        net.Send(self.targetPlayer)
+    end
+end
+
+-- Disappear State Functions
+function ENT:CrouchWalkBackwards()
+    -- Crouch-walk backwards into shadows
+    if not self.isCrouching then
+        self.isCrouching = true
+        self:PlayAnimation("crouch_walk")
+    end
+    
+    -- Move backwards
+    local backwardPos = self:GetPos() - self:GetForward() * 50
+    self:SetLastPosition(backwardPos)
+end
+
+function ENT:CreateFakeNoise()
+    -- Create fake noise to mislead player
+    if CurTime() - self.lastFakeNoise < 5.0 then return end
+    
+    local fakePos = self:GetPos() + VectorRand() * 200
+    fakePos.z = self:GetPos().z
+    
+    -- Create sound effect
+    sound.Play("physics/plastic/plastic_box_impact_soft" .. math.random(1, 3) .. ".wav", fakePos, 60, 100, 1)
+    
+    self.lastFakeNoise = CurTime()
+end
+
+function ENT:ResetForAmbush()
+    -- Reset for future ambush
+    self.suspicionMeter = 0
+    self.stealthLevel = math.min(1.0, self.stealthLevel + 0.1)
+    self.targetPlayer = nil
+end
+
+function ENT:HasPlayerLostTrack()
+    -- Check if player has lost track of us
+    if not IsValid(self.targetPlayer) then return true end
+    
+    local distance = self:GetPos():Distance(self.targetPlayer:GetPos())
+    local timeSinceLastSight = CurTime() - self.lastPlayerSight
+    
+    -- Player has lost track if we're far away and haven't been seen recently
+    return distance > TACTICAL_CONFIG.STEALTH_RADIUS * 1.5 and timeSinceLastSight > 10.0
+end
+
+-- Utility Functions
+function ENT:GetLightLevel(position)
+    -- Get light level at position (0 = dark, 1 = bright)
+    local light = render.GetLightColor(position)
+    return (light.r + light.g + light.b) / 3
+end
+
+function ENT:FindNearestShadow()
+    -- Find nearest shadow position
+    local currentPos = self:GetPos()
+    local searchRadius = 200
+    
+    for i = 1, 8 do
+        local angle = (i - 1) * 45
+        local testPos = currentPos + Vector(math.cos(math.rad(angle)), math.sin(math.rad(angle)), 0) * searchRadius
+        
+        if self:GetLightLevel(testPos) < 0.3 then
+            return testPos
+        end
+    end
+    
+    return nil
+end
+
+function ENT:FindCoverApproach(targetPos)
+    -- Find cover position to approach target
+    local searchRadius = 300
+    local areas = navmesh.GetAllNavAreas()
+    
+    for _, area in pairs(areas) do
+        local areaPos = area:GetCenter()
+        local distanceToTarget = areaPos:Distance(targetPos)
+        local distanceFromSelf = self:GetPos():Distance(areaPos)
+        
+        if distanceToTarget < searchRadius and distanceFromSelf < 400 then
+            -- Check if this provides cover
+            local trace = util.TraceLine({
+                start = areaPos + Vector(0, 0, 50),
+                endpos = targetPos + Vector(0, 0, 50),
+                filter = {self}
+            })
+            
+            if trace.Hit then
+                return areaPos
+            end
+        end
+    end
+    
+    return nil
+end
+
+function ENT:FindNextCoverPosition(targetPos)
+    -- Find next cover position for cover-to-cover movement
+    local currentPos = self:GetPos()
+    local searchRadius = 250
+    
+    local areas = navmesh.GetAllNavAreas()
+    for _, area in pairs(areas) do
+        local areaPos = area:GetCenter()
+        local distanceToTarget = areaPos:Distance(targetPos)
+        local distanceFromSelf = currentPos:Distance(areaPos)
+        
+        if distanceToTarget < searchRadius and distanceFromSelf < 300 then
+            -- Check if this provides cover
+            local trace = util.TraceLine({
+                start = areaPos + Vector(0, 0, 50),
+                endpos = targetPos + Vector(0, 0, 50),
+                filter = {self}
+            })
+            
+            if trace.Hit then
+                return areaPos
+            end
+        end
+    end
+    
+    return nil
+end
+
+function ENT:FindRappelPosition()
+    -- Find position to rappel from
+    local currentPos = self:GetPos()
+    local searchRadius = 300
+    
+    -- Look for higher positions
+    for i = 1, 6 do
+        local angle = (i - 1) * 60
+        local testPos = currentPos + Vector(math.cos(math.rad(angle)), math.sin(math.rad(angle)), 0) * searchRadius
+        testPos.z = testPos.z + 100  -- Look for higher position
+        
+        -- Check if position is accessible
+        local trace = util.TraceLine({
+            start = currentPos,
+            endpos = testPos,
+            filter = {self}
+        })
+        
+        if not trace.Hit then
+            return testPos
+        end
+    end
+    
+    return nil
+end
+
+function ENT:FindExits(position)
+    -- Find exit points from a position
+    local exits = {}
+    local searchRadius = 200
+    
+    local areas = navmesh.GetAllNavAreas()
+    for _, area in pairs(areas) do
+        local areaPos = area:GetCenter()
+        if areaPos:Distance(position) < searchRadius then
+            table.insert(exits, areaPos)
+        end
+    end
+    
+    return exits
+end
+
+function ENT:FindVerticalPath()
+    -- Find vertical path for traversal
+    local currentPos = self:GetPos()
+    
+    -- Look for ladders or climbable surfaces
+    local trace = util.TraceLine({
+        start = currentPos,
+        endpos = currentPos + Vector(0, 0, 100),
+        filter = {self}
+    })
+    
+    if trace.Hit then
+        return trace.HitPos
+    end
+    
+    return nil
+end
+
+function ENT:BreakNearbyLights()
+    -- Break nearby light sources
+    local lights = ents.FindByClass("light*")
+    for _, light in pairs(lights) do
+        if IsValid(light) then
+            local distance = self:GetPos():Distance(light:GetPos())
+            if distance < TACTICAL_CONFIG.LIGHT_DISABLE_RANGE then
+                light:Remove()
+                
+                -- Create breaking effect
+                local effect = EffectData()
+                effect:SetOrigin(light:GetPos())
+                effect:SetScale(1.0)
+                util.Effect("GlassImpact", effect)
+            end
+        end
+    end
+end
+
+function ENT:ThrowGrenade(grenadeType, targetPos)
+    -- Throw tactical grenade
+    local grenade = ents.Create("prop_physics")
+    if IsValid(grenade) then
+        grenade:SetModel("models/props_junk/watermelon01.mdl")  -- Placeholder model
+        grenade:SetPos(self:GetPos() + Vector(0, 0, 50))
+        grenade:SetAngles(Angle(0, 0, 0))
+        grenade:Spawn()
+        
+        -- Apply physics to throw grenade
+        local phys = grenade:GetPhysicsObject()
+        if IsValid(phys) then
+            local throwDir = (targetPos - self:GetPos()):GetNormalized()
+            phys:SetVelocity(throwDir * 500 + Vector(0, 0, 200))
+        end
+        
+        -- Remove grenade after a delay
+        timer.Simple(3.0, function()
+            if IsValid(grenade) then
+                grenade:Remove()
+            end
+        end)
+    end
+end
+
+function ENT:PreferWallMovement()
+    -- Prefer movement along walls
+    local currentPos = self:GetPos()
+    local forward = self:GetForward()
+    
+    -- Check for walls on either side
+    local leftTrace = util.TraceLine({
+        start = currentPos,
+        endpos = currentPos + forward:Cross(Vector(0, 0, 1)) * 50,
+        filter = {self}
+    })
+    
+    local rightTrace = util.TraceLine({
+        start = currentPos,
+        endpos = currentPos - forward:Cross(Vector(0, 0, 1)) * 50,
+        filter = {self}
+    })
+    
+    -- If near a wall, adjust movement to follow it
+    if leftTrace.Hit or rightTrace.Hit then
+        local wallNormal = leftTrace.Hit and leftTrace.HitNormal or rightTrace.HitNormal
+        local adjustedForward = forward - wallNormal * forward:Dot(wallNormal)
+        self:SetAngles(adjustedForward:Angle())
     end
 end
