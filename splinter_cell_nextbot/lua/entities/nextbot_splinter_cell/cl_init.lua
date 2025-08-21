@@ -11,6 +11,9 @@ function ENT:Initialize()
     self.stealthParticles = {}
     self.flashEffect = 0
     self.whisperTimer = 0
+    self.nightVisionEffect = 0
+    self.smokeEffects = {}
+    self.wallClimbEffect = 0
     
     -- Set up particle effects for stealth mode
     self:SetupStealthParticles()
@@ -42,6 +45,15 @@ function ENT:Draw()
     
     -- Draw stealth indicator
     self:DrawStealthIndicator()
+    
+    -- Draw night vision effect
+    self:DrawNightVisionEffect()
+    
+    -- Draw wall climbing effect
+    self:DrawWallClimbEffect()
+    
+    -- Draw smoke effects
+    self:DrawSmokeEffects()
 end
 
 function ENT:DrawTacticalInfo()
@@ -81,6 +93,36 @@ function ENT:DrawTacticalInfo()
         surface.DrawOutlinedRect(-stealthBarWidth/2, 35, stealthBarWidth, stealthBarHeight)
         
         draw.SimpleTextOutlined("STEALTH", "DermaDefault", 0, 50, Color(255, 255, 255), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER, 1, Color(0, 0, 0))
+        
+        -- Draw night vision status
+        local nightVisionActive = self:GetNWBool("nightVisionActive", false)
+        if nightVisionActive then
+            draw.SimpleTextOutlined("NIGHT VISION: ACTIVE", "DermaDefault", 0, 70, Color(0, 255, 0), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER, 1, Color(0, 0, 0))
+        end
+        
+        -- Draw equipment status
+        local smokeGrenades = self:GetNWInt("smokeGrenades", 3)
+        local ammoCount = self:GetNWInt("ammoCount", 30)
+        local grenadesAvailable = self:GetNWInt("grenadesAvailable", 2)
+        
+        draw.SimpleTextOutlined("SMOKE: " .. smokeGrenades .. " | AMMO: " .. ammoCount .. " | GRENADES: " .. grenadesAvailable, "DermaDefault", 0, 90, Color(255, 255, 255), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER, 1, Color(0, 0, 0))
+        
+        -- Draw combat stance
+        local combatStance = self:GetNWString("combatStance", "standing")
+        local stanceColor = Color(255, 255, 255)
+        if combatStance == "crouching" then
+            stanceColor = Color(255, 255, 0)
+        elseif combatStance == "prone" then
+            stanceColor = Color(255, 0, 0)
+        end
+        
+        draw.SimpleTextOutlined("STANCE: " .. string.upper(combatStance), "DermaDefault", 0, 110, stanceColor, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER, 1, Color(0, 0, 0))
+        
+        -- Draw wall climbing status
+        local isClimbing = self:GetNWBool("isClimbing", false)
+        if isClimbing then
+            draw.SimpleTextOutlined("WALL CLIMBING", "DermaDefault", 0, 130, Color(0, 150, 255), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER, 1, Color(0, 0, 0))
+        end
     cam.End3D2D()
 end
 
@@ -199,7 +241,7 @@ function ENT:CreateWhisperEffect(player)
         -- Create whisper text
         if CurTime() - self.whisperTimer > 3 then
             self.whisperTimer = CurTime()
-            self:ShowWhisperText(player)
+            -- Whisper effect would be implemented here
         end
     end
 end
@@ -421,6 +463,118 @@ function ENT:DrawEnhancedStealthParticles()
         -- Draw trail
         local trailPos = particle.pos - particle.vel * 0.1
         render.DrawSprite(trailPos, size * 0.5, size * 0.5, Color(0, 100, 200, alpha * 0.5))
+    end
+end
+
+-- New Visual Effect Functions
+function ENT:DrawNightVisionEffect()
+    local nightVisionActive = self:GetNWBool("nightVisionActive", false)
+    if not nightVisionActive then return end
+    
+    local pos = self:GetPos()
+    local player = LocalPlayer()
+    if not IsValid(player) then return end
+    
+    -- Create night vision goggles effect
+    local gogglePos = pos + Vector(0, 0, 60)
+    local distance = player:GetPos():Distance(pos)
+    
+    if distance < 300 then
+        -- Draw night vision goggles glow
+        render.SetMaterial(Material("sprites/light_glow02_add"))
+        render.DrawSprite(gogglePos, 20, 20, Color(0, 255, 0, 100))
+        
+        -- Draw scanning effect
+        local scanAngle = CurTime() * 50
+        local scanPos = gogglePos + Vector(math.cos(math.rad(scanAngle)), math.sin(math.rad(scanAngle)), 0) * 30
+        render.DrawSprite(scanPos, 8, 8, Color(0, 255, 0, 150))
+    end
+end
+
+function ENT:DrawWallClimbEffect()
+    local isClimbing = self:GetNWBool("isClimbing", false)
+    if not isClimbing then return end
+    
+    local pos = self:GetPos()
+    local player = LocalPlayer()
+    if not IsValid(player) then return end
+    
+    local distance = player:GetPos():Distance(pos)
+    if distance < 400 then
+        -- Draw climbing particles
+        for i = 1, 5 do
+            local particlePos = pos + Vector(
+                math.sin(CurTime() * 2 + i) * 15,
+                math.cos(CurTime() * 2 + i) * 15,
+                math.sin(CurTime() + i) * 10
+            )
+            
+            render.SetMaterial(Material("sprites/light_glow02_add"))
+            render.DrawSprite(particlePos, 6, 6, Color(0, 150, 255, 120))
+        end
+        
+        -- Draw climbing trail
+        local trailStart = pos + Vector(0, 0, -20)
+        local trailEnd = pos + Vector(0, 0, 20)
+        
+        render.SetMaterial(Material("trails/laser"))
+        render.DrawBeam(trailStart, trailEnd, 3, 0, 1, Color(0, 150, 255, 80))
+    end
+end
+
+function ENT:DrawSmokeEffects()
+    local player = LocalPlayer()
+    if not IsValid(player) then return end
+    
+    -- Draw smoke grenade effects (this would be populated by server-side smoke deployment)
+    for i = 1, 3 do
+        local smokePos = self:GetPos() + VectorRand() * 100
+        local distance = player:GetPos():Distance(smokePos)
+        
+        if distance < 500 then
+            -- Draw smoke particles
+            for j = 1, 3 do
+                local particlePos = smokePos + Vector(
+                    math.sin(CurTime() + i + j) * 20,
+                    math.cos(CurTime() + i + j) * 20,
+                    math.sin(CurTime() * 0.5 + i + j) * 15
+                )
+                
+                render.SetMaterial(Material("sprites/light_glow02_add"))
+                render.DrawSprite(particlePos, 10, 10, Color(128, 128, 128, 80))
+            end
+        end
+    end
+end
+
+-- Enhanced stealth particles with night vision integration
+function ENT:DrawStealthParticles()
+    local stealthLevel = self:GetNWFloat("stealthLevel", 1.0)
+    local nightVisionActive = self:GetNWBool("nightVisionActive", false)
+    
+    if stealthLevel > 0.7 then
+        local pos = self:GetPos()
+        local particleCount = 5
+        local particleColor = Color(0, 100, 200, 100)
+        
+        -- Change particle color based on night vision
+        if nightVisionActive then
+            particleColor = Color(0, 255, 0, 120)
+        end
+        
+        for i = 1, particleCount do
+            local offset = Vector(
+                math.sin(CurTime() + i) * 30,
+                math.cos(CurTime() + i) * 30,
+                math.sin(CurTime() * 0.5 + i) * 20
+            )
+            
+            local particlePos = pos + offset
+            
+            -- Draw stealth particle
+            render.SetMaterial(Material("sprites/light_glow02_add"))
+            render.DrawSprite(particlePos, 8, 8, particleColor)
+        end
     end
 end
 
