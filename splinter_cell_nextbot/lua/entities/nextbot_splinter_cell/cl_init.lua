@@ -759,3 +759,18 @@ function ENT:ShowEnhancedWhisperText(player, tacticalState)
     -- Display whisper text on screen
     chat.AddText(Color(0, 255, 0), "[Whisper] ", Color(255, 255, 255), message)
 end
+
+-- Client-side light level detection for server requests
+net.Receive("SplinterCellRequestLightLevel", function(len)
+    local position = net.ReadVector()
+    
+    -- Get light level using render.GetLightColor (client-side only)
+    local light = render.GetLightColor(position)
+    local lightLevel = (light.r + light.g + light.b) / 3
+    
+    -- Send the light level back to the server
+    net.Start("SplinterCellLightLevelResponse")
+    net.WriteVector(position)
+    net.WriteFloat(lightLevel)
+    net.SendToServer()
+end)
