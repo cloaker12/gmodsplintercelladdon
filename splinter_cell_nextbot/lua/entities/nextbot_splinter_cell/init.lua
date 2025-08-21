@@ -317,22 +317,47 @@ function ENT:InitializeNextBotMovement()
     -- Prevent infinite recursion
     if self.nextbotInitializationAttempts and self.nextbotInitializationAttempts > 10 then
         print("Warning: NextBot movement initialization failed after 10 attempts for entity " .. tostring(self))
+        -- Fall back to basic initialization even if methods aren't available
+        self.nextbotInitialized = true
         return
     end
     
     self.nextbotInitializationAttempts = (self.nextbotInitializationAttempts or 0) + 1
     
-    -- Use a timer to ensure NextBot methods are available
+    -- First attempt immediate initialization
+    if self.SetDesiredSpeed and self.SetMaxSpeed and self.SetAcceleration and self.SetDeceleration then
+        -- Methods are already available, initialize immediately
+        pcall(function()
+            self:SetDesiredSpeed(100)
+            self:SetMaxSpeed(150)
+            self:SetAcceleration(500)
+            self:SetDeceleration(500)
+        end)
+        self.nextbotInitialized = true
+        self.nextbotInitializationAttempts = 0 -- Reset counter on success
+        return
+    end
+    
+    -- If not available immediately, use a timer
     timer.Simple(0.1, function()
         if IsValid(self) then
             -- Check if NextBot methods are available
             if self.SetDesiredSpeed and self.SetMaxSpeed and self.SetAcceleration and self.SetDeceleration then
-                self:SetDesiredSpeed(100)
-                self:SetMaxSpeed(150)
-                self:SetAcceleration(500)
-                self:SetDeceleration(500)
-                self.nextbotInitialized = true
-                self.nextbotInitializationAttempts = 0 -- Reset counter on success
+                -- Use pcall to catch any errors during initialization
+                local success = pcall(function()
+                    self:SetDesiredSpeed(100)
+                    self:SetMaxSpeed(150)
+                    self:SetAcceleration(500)
+                    self:SetDeceleration(500)
+                end)
+                
+                if success then
+                    self.nextbotInitialized = true
+                    self.nextbotInitializationAttempts = 0 -- Reset counter on success
+                else
+                    -- If methods exist but calling them fails, try again
+                    self:InitializeNextBotMovement()
+                end
             else
                 -- If methods aren't available yet, try again
                 self:InitializeNextBotMovement()
@@ -2230,9 +2255,11 @@ end
 
 -- Override base NextBot functions
 function ENT:RunBehaviour()
-    -- Let the timer-based AI handle behavior instead
+    -- Keep the behavior running continuously
     while true do
-        coroutine.wait(1)
+        -- Yield control back to the engine each frame
+        -- This prevents the "has finished executing" warning
+        coroutine.yield()
     end
 end
 
