@@ -128,9 +128,9 @@ local TACTICAL_CONFIG = {
     },
     
     -- Improved Combat Mechanics
-    COMBAT_ACCURACY_BASE = 0.85,    -- Base accuracy in combat
-    COMBAT_ACCURACY_MOVING = 0.6,   -- Accuracy while moving
-    COMBAT_ACCURACY_COVER = 0.95,   -- Accuracy from cover
+    COMBAT_ACCURACY_BASE = 0.65,    -- Base accuracy in combat (reduced from 0.85)
+    COMBAT_ACCURACY_MOVING = 0.4,   -- Accuracy while moving (reduced from 0.6)
+    COMBAT_ACCURACY_COVER = 0.75,   -- Accuracy from cover (reduced from 0.95)
     BURST_FIRE_COUNT = 3,           -- Number of shots in burst fire
     BURST_FIRE_DELAY = 0.1,         -- Delay between burst shots
     COMBAT_STANCE_CHANGES = true,   -- Dynamic stance changes in combat
@@ -195,6 +195,13 @@ function ENT:Initialize()
     self.lastFakeNoise = 0
     self.playerTrackLost = false
     self.lastPlayerSight = 0
+    
+    -- Improved AI behavior variables
+    self.lastTargetChange = CurTime()
+    self.targetChangeCooldown = 3.0  -- Minimum time between target changes
+    self.engagementCooldown = 5.0    -- Cooldown before re-engaging same target
+    self.lastEngagementTime = 0
+    self.patienceLevel = 1.0         -- How patient the AI is (affects decision making)
     
     -- Enhanced Navigation and Evasion
     self.navigationUpdateTimer = 0
@@ -266,6 +273,23 @@ function ENT:Initialize()
     self:SetNWEntity("weaponEntity", self.weaponEntity)
 end
 
+function ENT:OnRemove()
+    -- Clean up timers when entity is removed
+    timer.Remove("SplinterCellAI_" .. self:EntIndex())
+    
+    -- Remove weapon entity
+    if IsValid(self.weaponEntity) then
+        self.weaponEntity:Remove()
+    end
+    
+    -- Clean up any active effects
+    for _, effect in pairs(self.activeSmokeEffects or {}) do
+        if IsValid(effect) then
+            effect:Remove()
+        end
+    end
+end
+
 -- Weapon functions
 function ENT:CreateWeapon()
     -- Create weapon entity
@@ -320,22 +344,71 @@ function ENT:PlayAnimation(animationName)
         -- Fallback sequences for common animations with HL2 pistol animations
         if animationName == "idle" then
             -- ACT_IDLE_PISTOL - pistol idle animation
-            self:SetSequence(self:LookupSequence("idle") or 0)
+            local idleSeq = self:LookupSequence("idle")
+            if idleSeq and idleSeq > 0 then
+                self:SetSequence(idleSeq)
+            else
+                -- Ultimate fallback - use first available sequence
+                self:SetSequence(0)
+            end
         elseif animationName == "walk" then
             -- ACT_WALK_PISTOL - slow pistol walk animation
-            self:SetSequence(self:LookupSequence("walk") or self:LookupSequence("run") or 0)
+            local walkSeq = self:LookupSequence("walk")
+            if walkSeq and walkSeq > 0 then
+                self:SetSequence(walkSeq)
+            else
+                local runSeq = self:LookupSequence("run")
+                if runSeq and runSeq > 0 then
+                    self:SetSequence(runSeq)
+                else
+                    self:SetSequence(0)
+                end
+            end
         elseif animationName == "crouch_walk" then
             -- ACT_WALK_CROUCH_PISTOL - pistol crouch-walk animation
-            self:SetSequence(self:LookupSequence("crouch_walk") or self:LookupSequence("walk") or 0)
+            local crouchSeq = self:LookupSequence("crouch_walk")
+            if crouchSeq and crouchSeq > 0 then
+                self:SetSequence(crouchSeq)
+            else
+                local walkSeq = self:LookupSequence("walk")
+                if walkSeq and walkSeq > 0 then
+                    self:SetSequence(walkSeq)
+                else
+                    self:SetSequence(0)
+                end
+            end
         elseif animationName == "aim" then
             -- Aiming stance
-            self:SetSequence(self:LookupSequence("gesture_range_attack") or 0)
+            local aimSeq = self:LookupSequence("gesture_range_attack")
+            if aimSeq and aimSeq > 0 then
+                self:SetSequence(aimSeq)
+            else
+                self:SetSequence(0)
+            end
         elseif animationName == "reload" then
             -- Reload animation
-            self:SetSequence(self:LookupSequence("gesture_reload") or 0)
+            local reloadSeq = self:LookupSequence("gesture_reload")
+            if reloadSeq and reloadSeq > 0 then
+                self:SetSequence(reloadSeq)
+            else
+                self:SetSequence(0)
+            end
         elseif animationName == "run" then
             -- ACT_RUN_PISTOL - only in emergencies
-            self:SetSequence(self:LookupSequence("run") or self:LookupSequence("walk") or 0)
+            local runSeq = self:LookupSequence("run")
+            if runSeq and runSeq > 0 then
+                self:SetSequence(runSeq)
+            else
+                local walkSeq = self:LookupSequence("walk")
+                if walkSeq and walkSeq > 0 then
+                    self:SetSequence(walkSeq)
+                else
+                    self:SetSequence(0)
+                end
+            end
+        else
+            -- Default fallback
+            self:SetSequence(0)
         end
     end
     
@@ -410,9 +483,20 @@ function ENT:SetupTacticalAI()
 end
 
 function ENT:StartAICycle()
-    timer.Create("SplinterCellAI_" .. self:EntIndex(), 0.1, 0, function()
+    timer.Create("SplinterCellAI_" .. self:EntIndex(), 0.2, 0, function()
         if IsValid(self) then
-            self:ExecuteTacticalAI()
+            -- Add error handling to prevent crashes
+            local success, err = pcall(function()
+                self:ExecuteTacticalAI()
+            end)
+            
+            if not success then
+                print("[SplinterCellAI] Error in AI cycle: " .. tostring(err))
+                -- Reset to safe state
+                self.tacticalState = AI_STATES.PATROL
+                self.currentPath = nil
+                self.targetPlayer = nil
+            end
         end
     end)
 end
@@ -571,12 +655,22 @@ function ENT:MoveToPosition(targetPos)
     path:Compute(self, targetPos)
     
     if not path:IsValid() then
-        -- Direct movement if pathfinding fails
-        self:SetLastPosition(targetPos)
-        return
+        -- Try alternative pathfinding with different parameters
+        local altPath = Path("Follow")
+        altPath:SetMinLookAheadDistance(200)
+        altPath:SetGoalTolerance(50)
+        altPath:Compute(self, targetPos)
+        
+        if altPath:IsValid() then
+            self.currentPath = altPath
+        else
+            -- Direct movement if pathfinding fails
+            self:SetLastPosition(targetPos)
+            return
+        end
+    else
+        self.currentPath = path
     end
-    
-    self.currentPath = path
 end
 
 function ENT:MoveToLastKnownPosition()
@@ -1163,9 +1257,21 @@ end
 function ENT:UpdateNavigation()
     -- Update pathfinding with better obstacle avoidance
     if self.currentPath and self.currentPath:IsValid() then
-        -- Check if path is still valid
-        if self:IsPathBlocked() then
-            self.currentPath:Invalidate()
+        -- Check if path is still valid with error handling
+        local pathBlocked = false
+        local success, err = pcall(function()
+            pathBlocked = self:IsPathBlocked()
+        end)
+        
+        if not success then
+            print("[SplinterCellAI] Error checking path: " .. tostring(err))
+            pathBlocked = true
+        end
+        
+        if pathBlocked then
+            if self.currentPath and self.currentPath.Invalidate then
+                self.currentPath:Invalidate()
+            end
             self.currentPath = nil
             self:FindAlternativePath()
         end
@@ -1225,7 +1331,7 @@ function ENT:IsPathBlocked()
     
     -- Check if there are obstacles in the path
     local nextSegment = self.currentPath:GetNextSegment()
-    if nextSegment then
+    if nextSegment and nextSegment.pos then
         local trace = util.TraceLine({
             start = self:GetPos() + Vector(0, 0, 50),
             endpos = nextSegment.pos + Vector(0, 0, 50),
@@ -1711,25 +1817,33 @@ end
 function ENT:HandleImmediateThreats()
     -- Check for immediate threats that require instant response
     local players = player.GetAll()
+    local currentTime = CurTime()
+    
+    -- Don't change targets too frequently
+    if currentTime - self.lastTargetChange < self.targetChangeCooldown then
+        return
+    end
+    
     for _, player in pairs(players) do
         if IsValid(player) and player:Alive() then
             local distance = self:GetPos():Distance(player:GetPos())
             
-            -- Immediate threat detection
-            if distance < 50 then
+            -- Immediate threat detection (reduced range for less aggressive behavior)
+            if distance < 30 then
                 -- Player is very close, immediate response needed
                 if self.tacticalState == AI_STATES.PATROL then
                     self:ChangeState(AI_STATES.SUSPICIOUS)
                 end
                 self.targetPlayer = player
                 self.lastKnownPosition = player:GetPos()
+                self.lastTargetChange = currentTime
                 return
             end
             
-            -- Check if player is looking directly at us
-            if self:IsPlayerLookingAtMe(player) then
-                self.stealthLevel = math.max(0.0, self.stealthLevel - 0.05)
-                if self.stealthLevel < 0.3 then
+            -- Check if player is looking directly at us (reduced sensitivity)
+            if self:IsPlayerLookingAtMe(player) and distance < 100 then
+                self.stealthLevel = math.max(0.0, self.stealthLevel - 0.03) -- Reduced penalty
+                if self.stealthLevel < 0.2 then -- Lower threshold
                     self:ChangeState(AI_STATES.ENGAGE)
                 end
             end
@@ -2279,8 +2393,14 @@ function ENT:FireSuppressedShot()
     local targetPos = self.targetPlayer:GetPos() + Vector(0, 0, 50)
     local myPos = self:GetPos() + Vector(0, 0, 50)
     
-    -- Add accuracy-based spread
-    local spread = (1.0 - accuracy) * 80  -- Reduced spread for better accuracy
+    -- Add more realistic spread and accuracy penalties
+    local distance = self:GetPos():Distance(self.targetPlayer:GetPos())
+    local distancePenalty = math.min(1.0, distance / 500) -- Accuracy decreases with distance
+    local movementPenalty = self:IsMoving() and 0.3 or 0.0 -- Moving reduces accuracy
+    local finalAccuracy = accuracy * (1.0 - distancePenalty) * (1.0 - movementPenalty)
+    
+    -- Add accuracy-based spread with more realistic values
+    local spread = (1.0 - finalAccuracy) * 150  -- Increased spread for less aimbotty behavior
     local spreadVector = VectorRand() * spread
     local finalTarget = targetPos + spreadVector
     
