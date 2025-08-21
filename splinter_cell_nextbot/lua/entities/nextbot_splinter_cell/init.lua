@@ -903,3 +903,205 @@ end
 function ENT:OnRemove()
     timer.Remove("SplinterCellAI_" .. self:EntIndex())
 end
+
+-- Additional NextBot lifecycle functions for better AI behavior
+function ENT:Think()
+    -- Called every frame, handle immediate AI decisions
+    if not IsValid(self) then return end
+    
+    -- Update stealth level based on current conditions
+    self:UpdateStealthLevel()
+    
+    -- Handle immediate threats
+    self:HandleImmediateThreats()
+    
+    -- Set next think time
+    self:NextThink(CurTime() + 0.1)
+    return true
+end
+
+function ENT:UpdateStealthLevel()
+    -- Update stealth based on current environment
+    local lightLevel = self:GetLightLevel(self:GetPos())
+    local nearbyPlayers = self:GetNearbyPlayers()
+    
+    -- Reduce stealth in bright light
+    if lightLevel > 0.6 then
+        self.stealthLevel = math.max(0.0, self.stealthLevel - 0.01)
+    end
+    
+    -- Reduce stealth when players are very close
+    for _, player in pairs(nearbyPlayers) do
+        local distance = self:GetPos():Distance(player:GetPos())
+        if distance < 100 then
+            self.stealthLevel = math.max(0.0, self.stealthLevel - 0.02)
+        end
+    end
+    
+    -- Gradually recover stealth when safe
+    if lightLevel < 0.3 and #nearbyPlayers == 0 then
+        self.stealthLevel = math.min(1.0, self.stealthLevel + 0.005)
+    end
+end
+
+function ENT:HandleImmediateThreats()
+    -- Check for immediate threats that require instant response
+    local players = player.GetAll()
+    for _, player in pairs(players) do
+        if IsValid(player) and player:Alive() then
+            local distance = self:GetPos():Distance(player:GetPos())
+            
+            -- Immediate threat detection
+            if distance < 50 then
+                -- Player is very close, immediate response needed
+                if self.tacticalState == AI_STATES.IDLE_RECON then
+                    self:ChangeState(AI_STATES.AMBUSH)
+                end
+                self.targetPlayer = player
+                self.lastKnownPosition = player:GetPos()
+                return
+            end
+            
+            -- Check if player is looking directly at us
+            if self:IsPlayerLookingAtMe(player) then
+                self.stealthLevel = math.max(0.0, self.stealthLevel - 0.05)
+                if self.stealthLevel < 0.3 then
+                    self:ChangeState(AI_STATES.ENGAGE_SUPPRESSED)
+                end
+            end
+        end
+    end
+end
+
+function ENT:GetNearbyPlayers()
+    local nearbyPlayers = {}
+    local players = player.GetAll()
+    
+    for _, player in pairs(players) do
+        if IsValid(player) and player:Alive() then
+            local distance = self:GetPos():Distance(player:GetPos())
+            if distance < TACTICAL_CONFIG.STEALTH_RADIUS then
+                table.insert(nearbyPlayers, player)
+            end
+        end
+    end
+    
+    return nearbyPlayers
+end
+
+function ENT:IsPlayerLookingAtMe(player)
+    if not IsValid(player) then return false end
+    
+    local playerEyePos = player:EyePos()
+    local myPos = self:GetPos() + Vector(0, 0, 50)
+    local playerForward = player:EyeAngles():Forward()
+    local toMe = (myPos - playerEyePos):GetNormalized()
+    
+    local dot = playerForward:Dot(toMe)
+    local distance = playerEyePos:Distance(myPos)
+    
+    -- Player is looking at us if dot product is high and we're within view distance
+    return dot > 0.7 and distance < 300
+end
+
+function ENT:Touch(entity)
+    -- Handle collision with other entities
+    if not IsValid(entity) then return end
+    
+    -- Handle player collision
+    if entity:IsPlayer() then
+        if self.tacticalState == AI_STATES.AMBUSH then
+            -- Execute immediate takedown
+            self:PerformSilentTakedown()
+        elseif self.tacticalState == AI_STATES.STALKING then
+            -- Player bumped into us, become aggressive
+            self:ChangeState(AI_STATES.ENGAGE_SUPPRESSED)
+        end
+    end
+    
+    -- Handle prop collision for sound creation
+    if entity:GetClass() == "prop_physics" or entity:GetClass() == "prop_physics_multiplayer" then
+        if math.random() < 0.1 then
+            -- Create noise when bumping props
+            self:EmitSound("physics/wood/wood_box_impact_hard" .. math.random(1, 3) .. ".wav", 50, 100)
+        end
+    end
+end
+
+function ENT:Use(activator, caller)
+    -- Handle player interaction
+    if IsValid(activator) and activator:IsPlayer() then
+        -- Player is trying to interact with us
+        if self.tacticalState == AI_STATES.IDLE_RECON then
+            -- Surprise attack
+            self.targetPlayer = activator
+            self:ChangeState(AI_STATES.AMBUSH)
+        else
+            -- Defensive response
+            self:ChangeState(AI_STATES.ENGAGE_SUPPRESSED)
+        end
+    end
+end
+
+function ENT:OnInjured(dmg)
+    -- Called when the NextBot is injured
+    local attacker = dmg:GetAttacker()
+    
+    -- Reduce stealth significantly when injured
+    self.stealthLevel = math.max(0.0, self.stealthLevel - 0.4)
+    
+    -- Update target if attacked by player
+    if IsValid(attacker) and attacker:IsPlayer() then
+        self.targetPlayer = attacker
+        self.lastKnownPosition = attacker:GetPos()
+        
+        -- Become more aggressive when injured
+        if self.tacticalState == AI_STATES.IDLE_RECON or self.tacticalState == AI_STATES.INVESTIGATE then
+            self:ChangeState(AI_STATES.ENGAGE_SUPPRESSED)
+        end
+    end
+    
+    -- Play injury sound
+    self:EmitSound("physics/body/body_medium_impact_hard" .. math.random(1, 6) .. ".wav", 75, 100)
+    
+    -- Deploy smoke if available
+    if CurTime() - self.smokeLastUsed > TACTICAL_CONFIG.SMOKE_COOLDOWN then
+        self:DeploySmoke()
+    end
+end
+
+function ENT:OnLandOnGround()
+    -- Called when the NextBot lands on the ground
+    -- Reduce noise when landing
+    local velocity = self:GetVelocity():Length()
+    if velocity > 100 then
+        self:EmitSound("physics/body/body_medium_impact_soft" .. math.random(1, 7) .. ".wav", 30, 100)
+    end
+end
+
+function ENT:OnStuck()
+    -- Called when the NextBot gets stuck
+    -- Try to unstuck by jumping or finding alternative path
+    if self.currentPath and self.currentPath:IsValid() then
+        self.currentPath:Invalidate()
+        self.currentPath = nil
+    end
+    
+    -- Try to jump to unstuck
+    self:SetVelocity(Vector(0, 0, 200))
+    
+    -- Find new path
+    if self.targetPosition then
+        self:MoveToPosition(self.targetPosition)
+    else
+        self:FindNextPatrolPoint()
+    end
+end
+
+function ENT:OnUnStuck()
+    -- Called when the NextBot becomes unstuck
+    -- Resume normal behavior
+    if self.targetPosition then
+        self:MoveToPosition(self.targetPosition)
+    end
+end

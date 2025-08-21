@@ -258,3 +258,178 @@ function ENT:OnRemove()
     self.flashEffect = 0
     self.whisperTimer = 0
 end
+
+-- Additional client-side effects and improvements
+function ENT:Think()
+    -- Update client-side effects
+    if not IsValid(self) then return end
+    
+    -- Update stealth particles
+    self:UpdateStealthParticles()
+    
+    -- Update flash effects
+    self:UpdateFlashEffects()
+    
+    -- Set next think time
+    self:NextThink(CurTime() + 0.05)
+    return true
+end
+
+function ENT:UpdateStealthParticles()
+    local stealthLevel = self:GetNWFloat("stealthLevel", 1.0)
+    
+    -- Only show particles when highly stealthy
+    if stealthLevel > 0.8 then
+        -- Create new particles
+        if not self.stealthParticles then
+            self.stealthParticles = {}
+        end
+        
+        -- Add new particle every few frames
+        if CurTime() % 0.2 < 0.05 then
+            local particle = {
+                pos = self:GetPos() + VectorRand() * 50,
+                vel = VectorRand() * 10,
+                life = 2.0,
+                maxLife = 2.0
+            }
+            table.insert(self.stealthParticles, particle)
+        end
+        
+        -- Update existing particles
+        for i = #self.stealthParticles, 1, -1 do
+            local particle = self.stealthParticles[i]
+            particle.pos = particle.pos + particle.vel * FrameTime()
+            particle.life = particle.life - FrameTime()
+            
+            -- Remove dead particles
+            if particle.life <= 0 then
+                table.remove(self.stealthParticles, i)
+            end
+        end
+    else
+        -- Clear particles when not stealthy
+        self.stealthParticles = {}
+    end
+end
+
+function ENT:UpdateFlashEffects()
+    local tacticalState = self:GetNWInt("tacticalState", 1)
+    
+    -- Flash effect when in aggressive states
+    if tacticalState == 4 or tacticalState == 5 then -- AMBUSH or ENGAGE_SUPPRESSED
+        self.flashEffect = math.min(1.0, self.flashEffect + FrameTime() * 2)
+    else
+        self.flashEffect = math.max(0.0, self.flashEffect - FrameTime() * 3)
+    end
+end
+
+-- Enhanced tactical info display
+function ENT:DrawEnhancedTacticalInfo()
+    local pos = self:GetPos() + Vector(0, 0, 80)
+    local ang = LocalPlayer():EyeAngles()
+    ang:RotateAroundAxis(ang:Up(), -90)
+    ang:RotateAroundAxis(ang:Forward(), 90)
+    
+    cam.Start3D2D(pos, ang, 0.1)
+        -- Background panel
+        surface.SetDrawColor(0, 0, 0, 180)
+        surface.DrawRect(-120, -40, 240, 120)
+        
+        -- Border
+        surface.SetDrawColor(255, 255, 255, 100)
+        surface.DrawOutlinedRect(-120, -40, 240, 120)
+        
+        -- Tactical state with enhanced styling
+        local stateText = self:GetTacticalStateText()
+        local stateColor = self:GetStateColor()
+        
+        -- State background
+        surface.SetDrawColor(stateColor.r * 0.3, stateColor.g * 0.3, stateColor.b * 0.3, 200)
+        surface.DrawRect(-110, -30, 220, 25)
+        
+        draw.SimpleTextOutlined("TACTICAL STATE", "DermaDefault", 0, -20, Color(255, 255, 255), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER, 1, Color(0, 0, 0))
+        draw.SimpleTextOutlined(stateText, "DermaDefault", 0, -5, stateColor, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER, 1, Color(0, 0, 0))
+        
+        -- Objective with icon
+        local objective = self:GetNWString("currentObjective", "patrol")
+        local objectiveIcon = self:GetObjectiveIcon(objective)
+        
+        draw.SimpleTextOutlined(objectiveIcon .. " OBJECTIVE: " .. string.upper(objective), "DermaDefault", 0, 15, Color(255, 255, 255), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER, 1, Color(0, 0, 0))
+        
+        -- Enhanced stealth bar
+        local stealthLevel = self:GetNWFloat("stealthLevel", 1.0)
+        local stealthBarWidth = 180
+        local stealthBarHeight = 12
+        
+        -- Stealth bar background
+        surface.SetDrawColor(50, 50, 50, 200)
+        surface.DrawRect(-stealthBarWidth/2, 30, stealthBarWidth, stealthBarHeight)
+        
+        -- Stealth bar fill
+        local stealthColor = self:GetStealthColor(stealthLevel)
+        surface.SetDrawColor(stealthColor)
+        surface.DrawRect(-stealthBarWidth/2, 30, stealthBarWidth * stealthLevel, stealthBarHeight)
+        
+        -- Stealth bar border
+        surface.SetDrawColor(255, 255, 255, 100)
+        surface.DrawOutlinedRect(-stealthBarWidth/2, 30, stealthBarWidth, stealthBarHeight)
+        
+        -- Stealth percentage
+        local stealthPercent = math.floor(stealthLevel * 100)
+        draw.SimpleTextOutlined(stealthPercent .. "% STEALTH", "DermaDefault", 0, 50, stealthColor, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER, 1, Color(0, 0, 0))
+        
+        -- Flash effect overlay
+        if self.flashEffect > 0 then
+            local flashColor = Color(255, 0, 0, self.flashEffect * 50)
+            surface.SetDrawColor(flashColor)
+            surface.DrawRect(-120, -40, 240, 120)
+        end
+    cam.End3D2D()
+end
+
+function ENT:GetObjectiveIcon(objective)
+    local icons = {
+        patrol = "🔄",
+        investigate = "🔍",
+        stalk = "👁️",
+        execute_takedown = "⚔️",
+        suppress = "🔫",
+        retreat = "🏃"
+    }
+    return icons[objective] or "❓"
+end
+
+-- Enhanced stealth particles
+function ENT:DrawEnhancedStealthParticles()
+    if not self.stealthParticles then return end
+    
+    for _, particle in pairs(self.stealthParticles) do
+        local alpha = (particle.life / particle.maxLife) * 100
+        local size = (particle.life / particle.maxLife) * 12
+        
+        -- Draw particle
+        render.SetMaterial(Material("sprites/light_glow02_add"))
+        render.DrawSprite(particle.pos, size, size, Color(0, 150, 255, alpha))
+        
+        -- Draw trail
+        local trailPos = particle.pos - particle.vel * 0.1
+        render.DrawSprite(trailPos, size * 0.5, size * 0.5, Color(0, 100, 200, alpha * 0.5))
+    end
+end
+
+-- Override the original Draw function to use enhanced version
+local originalDraw = ENT.Draw
+function ENT:Draw()
+    -- Draw the NextBot model
+    self:DrawModel()
+    
+    -- Draw enhanced tactical information if player is close
+    local player = LocalPlayer()
+    if IsValid(player) and player:GetPos():Distance(self:GetPos()) < 500 then
+        self:DrawEnhancedTacticalInfo()
+    end
+    
+    -- Draw enhanced stealth particles
+    self:DrawEnhancedStealthParticles()
+end
