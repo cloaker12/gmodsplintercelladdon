@@ -173,6 +173,11 @@ function ENT:Initialize()
     self:SetMaxHealth(200)
     self:SetCollisionBounds(Vector(-16, -16, 0), Vector(16, 16, 72))
     
+    -- Ensure NextBot is properly initialized
+    if not self.IsNextBot then
+        self.IsNextBot = true
+    end
+    
     -- Set bodygroup for goggles
     self:SetBodygroup(1, 1) -- Goggles bodygroup
     
@@ -514,26 +519,30 @@ function ENT:SetupTacticalAI()
 end
 
 function ENT:StartAICycle()
-    timer.Create("SplinterCellAI_" .. self:EntIndex(), 0.2, 0, function()
-        if IsValid(self) and self:Health() > 0 then
-            -- Add error handling to prevent crashes
-            local success, err = pcall(function()
-                self:ExecuteTacticalAI()
-            end)
-            
-            if not success then
-                print("[SplinterCellAI] Error in AI cycle: " .. tostring(err))
-                -- Reset to safe state
-                if IsValid(self) then
-                    self.tacticalState = AI_STATES.PATROL
-                    self.currentPath = nil
-                    self.targetPlayer = nil
-                    -- Ensure we have a valid sequence to prevent T-posing
-                    self:SetSequence(self:LookupSequence("idle") or 0)
-                end
-            end
-        end
+    -- Start the AI cycle using NextBot's RunBehavior system
+    self.aiCycleStarted = true
+end
+
+function ENT:RunBehavior()
+    -- This is the main NextBot behavior function that runs every frame
+    if not IsValid(self) or not self.aiCycleStarted then return end
+    
+    -- Add error handling to prevent crashes
+    local success, err = pcall(function()
+        self:ExecuteTacticalAI()
     end)
+    
+    if not success then
+        print("[SplinterCellAI] Error in AI cycle: " .. tostring(err))
+        -- Reset to safe state
+        if IsValid(self) then
+            self.tacticalState = AI_STATES.PATROL
+            self.currentPath = nil
+            self.targetPlayer = nil
+            -- Ensure we have a valid sequence to prevent T-posing
+            self:SetSequence(self:LookupSequence("idle") or 0)
+        end
+    end
 end
 
 function ENT:ExecuteTacticalAI()
@@ -791,7 +800,11 @@ function ENT:ExecutePatrol()
     
     -- Set movement speed for patrol
     if IsValid(self) then
-        self:SetMaxSpeed(TACTICAL_CONFIG.PATROL_SPEED)
+        if self.SetDesiredSpeed then
+            self:SetDesiredSpeed(TACTICAL_CONFIG.PATROL_SPEED)
+        elseif self.SetMaxSpeed then
+            self:SetMaxSpeed(TACTICAL_CONFIG.PATROL_SPEED)
+        end
     end
     
     -- Handle current path movement
@@ -841,7 +854,11 @@ function ENT:ExecuteSuspicious()
     
     -- Set movement speed for suspicious state
     if IsValid(self) then
-        self:SetMaxSpeed(TACTICAL_CONFIG.SUSPICIOUS_SPEED)
+        if self.SetDesiredSpeed then
+            self:SetDesiredSpeed(TACTICAL_CONFIG.SUSPICIOUS_SPEED)
+        elseif self.SetMaxSpeed then
+            self:SetMaxSpeed(TACTICAL_CONFIG.SUSPICIOUS_SPEED)
+        end
     end
     
     -- Build Suspicion Meter
@@ -892,7 +909,11 @@ function ENT:ExecuteHunt()
     
     -- Set movement speed for hunt
     if IsValid(self) then
-        self:SetMaxSpeed(TACTICAL_CONFIG.HUNT_SPEED)
+        if self.SetDesiredSpeed then
+            self:SetDesiredSpeed(TACTICAL_CONFIG.HUNT_SPEED)
+        elseif self.SetMaxSpeed then
+            self:SetMaxSpeed(TACTICAL_CONFIG.HUNT_SPEED)
+        end
     end
     
     -- Track target while maintaining cover
@@ -940,7 +961,11 @@ function ENT:ExecuteEngage()
     
     -- Set movement speed for engagement
     if IsValid(self) then
-        self:SetMaxSpeed(TACTICAL_CONFIG.ENGAGE_SPEED)
+        if self.SetDesiredSpeed then
+            self:SetDesiredSpeed(TACTICAL_CONFIG.ENGAGE_SPEED)
+        elseif self.SetMaxSpeed then
+            self:SetMaxSpeed(TACTICAL_CONFIG.ENGAGE_SPEED)
+        end
     end
     
     -- Execute silent takedown if possible
@@ -982,7 +1007,11 @@ function ENT:ExecuteDisappear()
     
     -- Set movement speed for disappear
     if IsValid(self) then
-        self:SetMaxSpeed(TACTICAL_CONFIG.DISAPPEAR_SPEED)
+        if self.SetDesiredSpeed then
+            self:SetDesiredSpeed(TACTICAL_CONFIG.DISAPPEAR_SPEED)
+        elseif self.SetMaxSpeed then
+            self:SetMaxSpeed(TACTICAL_CONFIG.DISAPPEAR_SPEED)
+        end
     end
     
     -- Handle path movement for retreat
