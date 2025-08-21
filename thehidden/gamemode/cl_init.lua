@@ -133,13 +133,8 @@ end )
 
 
 concommand.Add( "hdn_loadout", function( ply )
-	if not ply.LoadOut then
-		ply.LoadOut = vgui.Create( "hdn_loadout" )
-	else
-		ply.LoadOut:SetVisible( true )
-		ply.LoadOut:RecreateEquipment()
-		--ply.LoadOut = vgui.Create( "hdn_loadout" )
-	end
+	-- Use modern Splinter Cell themed loadout menu
+	OpenLoadoutMenu()
 end)
 
 concommand.Add( "hdn_helpmenu", function( ply )

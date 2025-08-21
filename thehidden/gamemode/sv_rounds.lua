@@ -167,14 +167,63 @@ function GM:OnWin( winner )
 				self.HiddenRounds = 0
 			end
 		end
+		
+		-- Enhanced Hidden victory effects
+		self:TriggerHiddenVictoryEffects()
 	else
 		win_text = self.Jericho.Name
 		self.ShouldChangeHidden = true
 		self.HiddenRounds = 0
+		
+		-- Enhanced IRIS victory effects
+		self:TriggerIRISVictoryEffects()
 	end
 
 	self:DoEndRoundScreen( winner, win_text )
 	hook.Call( "HDN_OnWin", GAMEMODE, winner )
+end
+
+-- Enhanced victory effects for Hidden wins
+function GM:TriggerHiddenVictoryEffects()
+	-- Screen effects for all players
+	for _, ply in pairs(player.GetAll()) do
+		if IsValid(ply) then
+			-- Send dramatic screen effect
+			ply:ScreenFade(SCREENFADE.IN, Color(255, 0, 0, 100), 2, 1)
+			
+			-- Play victory sound
+			ply:EmitSound("ambient/atmosphere/cave_hit" .. math.random(1, 6) .. ".wav", 75, 80)
+		end
+	end
+	
+	-- Special effects at death locations
+	for pos, data in pairs(self.AIMemory.DeathLocations) do
+		local effectdata = EffectData()
+		effectdata:SetOrigin(pos)
+		util.Effect("bloodspray", effectdata)
+	end
+end
+
+-- Enhanced victory effects for IRIS wins
+function GM:TriggerIRISVictoryEffects()
+	-- Screen effects for all players
+	for _, ply in pairs(player.GetAll()) do
+		if IsValid(ply) then
+			-- Send tactical completion effect
+			ply:ScreenFade(SCREENFADE.IN, Color(0, 255, 100, 50), 1.5, 0.5)
+			
+			-- Play tactical victory sound
+			ply:EmitSound("buttons/blip1.wav", 100, 120)
+		end
+	end
+	
+	-- Award bonus points to surviving IRIS members
+	for _, ply in pairs(team.GetPlayers(TEAM_HUMAN)) do
+		if IsValid(ply) and ply:Alive() then
+			ply:SetNWInt("SurvivalBonus", (ply:GetNWInt("SurvivalBonus", 0) + 50))
+			ply:ChatPrint("Survival Bonus: +50 points!")
+		end
+	end
 end
 
 function GM:ShouldRoundEnd()
