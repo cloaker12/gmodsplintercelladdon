@@ -26,7 +26,7 @@ local SC_MODELS = {
 }
 
 -- Enhanced model selection for IRIS team
-GM.EnhancedModels = {
+local EnhancedModels = {
     IRIS = {
         "models/splinter_cell_3/player/Sam_E.mdl",  -- Primary I.R.I.S model
         "models/splinter_cell_3/player/Sam_E.mdl",  -- Increased chance
@@ -40,6 +40,13 @@ GM.EnhancedModels = {
         "models/splinter_cell_3/player/Sam_E.mdl"
     }
 }
+
+-- Initialize the enhanced models in the gamemode
+hook.Add("Initialize", "InitEnhancedModels", function()
+    if GAMEMODE then
+        GAMEMODE.EnhancedModels = EnhancedModels
+    end
+end)
 
 -- Apply bodygroups to Splinter Cell models
 function PLY:ApplyBodygroups()
@@ -74,7 +81,8 @@ end
 
 -- Enhanced model selection system
 function PLY:SelectEnhancedModel(team_type)
-    local models = GM.EnhancedModels[team_type] or GM.EnhancedModels.IRIS
+    local model_table = (GAMEMODE and GAMEMODE.EnhancedModels) and GAMEMODE.EnhancedModels or EnhancedModels
+    local models = model_table[team_type] or model_table.IRIS
     local selected_model = models[math.random(#models)]
     
     self:SetModel(selected_model)
@@ -96,7 +104,8 @@ local original_TeamSetUp = TeamSetUp or {}
 TeamSetUp[TEAM_HUMAN] = function(ply)
     local plyInfo = ply:IsCaptain() and GAMEMODE.Captain or GAMEMODE.Jericho
     
-    ply:ApplyLoadOut()
+    ply:ApplyLoadout()
+    ply:ApplyLoadOut()  -- Call the hook-based function as well
     ply:SetMaxHealth(plyInfo.Health)
     ply:SetHealth(plyInfo.Health)
     ply:SetArmor(plyInfo.Armor)
@@ -201,6 +210,19 @@ function UpdatePlayerModel(ply, model_path, bodygroups)
     end)
 end
 
+-- Console command to test Splinter Cell model assignment
+concommand.Add("hdn_test_sc_models", function(ply, cmd, args)
+    if not ply:IsAdmin() then return end
+    
+    for _, p in pairs(player.GetAll()) do
+        if p:Team() == TEAM_HUMAN then
+            local team_type = p:IsCaptain() and "Captain" or "IRIS"
+            p:SelectEnhancedModel(team_type)
+            ply:PrintMessage(HUD_PRINTCONSOLE, "Applied Splinter Cell model to " .. p:Nick())
+        end
+    end
+end)
+
 -- Console command for admins to change player models
 concommand.Add("hdn_setmodel", function(ply, cmd, args)
     if not ply:IsAdmin() then return end
@@ -254,7 +276,8 @@ end
 
 -- Model precaching to prevent lag
 hook.Add("Initialize", "PrecacheEnhancedModels", function()
-    for _, model_list in pairs(GM.EnhancedModels) do
+    local model_table = (GAMEMODE and GAMEMODE.EnhancedModels) and GAMEMODE.EnhancedModels or EnhancedModels
+    for _, model_list in pairs(model_table) do
         for _, model in pairs(model_list) do
             util.PrecacheModel(model)
         end
