@@ -320,15 +320,15 @@ function PANEL:LoadWeapons()
     self.WeaponCards = {}
     
     -- Get valid weapons
-    local weapons = {}
+    local validWeapons = {}
     for _, wep in pairs(weapons.GetList()) do
         if wep.InLoadoutMenu then
-            table.insert(weapons, wep)
+            table.insert(validWeapons, wep)
         end
     end
     
     -- Create weapon cards
-    for i, weapon in ipairs(weapons) do
+    for i, weapon in ipairs(validWeapons) do
         local card = CreateWeaponCard(self, weapon, i)
         card:SetParent(self.WeaponScroll)
         card:Dock(TOP)
