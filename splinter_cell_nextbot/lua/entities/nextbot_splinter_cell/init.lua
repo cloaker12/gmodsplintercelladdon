@@ -1244,16 +1244,7 @@ function ENT:UseSmokeGrenade()
         -- Play smoke sound
         self:EmitSound("weapons/smokegrenade/sg_explode.wav", 80, 100, 0.5)
     end
-end
-    
-    -- Aims weapon while sweeping corners
-    self:AimWhileSweeping()
-    
-    -- Alternates between crouch-walk and pistol idle
-    if math.random() < 0.1 then
-        self:AlternateCrouchAndIdle()
-    end
-end
+
 
 function ENT:ExecuteHunt()
     -- HUNT STATE: High alert, tactical stalking
