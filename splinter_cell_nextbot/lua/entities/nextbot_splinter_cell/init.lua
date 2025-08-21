@@ -257,6 +257,15 @@ function ENT:Initialize()
     self.currentAnimation = "idle"
     self.animationStartTime = CurTime()
     self.isMoving = false
+    
+    -- Ensure we start with a valid animation sequence to prevent T-posing
+    local idleSeq = self:LookupSequence("idle")
+    if idleSeq and idleSeq > 0 then
+        self:SetSequence(idleSeq)
+    else
+        -- Fallback to first available sequence
+        self:SetSequence(0)
+    end
     self.lastMoveTime = 0
     
     -- Network variables for client display
@@ -346,6 +355,7 @@ end
 
 -- Animation functions
 function ENT:PlayAnimation(animationName)
+    if not animationName or not IsValid(self) then return end
     if self.currentAnimation == animationName then return end
     
     self.currentAnimation = animationName
@@ -428,10 +438,14 @@ function ENT:PlayAnimation(animationName)
     end
     
     -- Update networked variable
-    self:SetNWString("currentAnimation", self.currentAnimation)
+    if IsValid(self) then
+        self:SetNWString("currentAnimation", self.currentAnimation)
+    end
 end
 
 function ENT:UpdateAnimation()
+    if not IsValid(self) then return end
+    
     local velocity = self:GetVelocity():Length()
     local currentTime = CurTime()
     
@@ -456,7 +470,9 @@ function ENT:UpdateAnimation()
     end
     
     -- Update weapon position
-    self:UpdateWeaponPosition()
+    if IsValid(self) then
+        self:UpdateWeaponPosition()
+    end
 end
 
 function ENT:GetMovementAnimation()
@@ -499,7 +515,7 @@ end
 
 function ENT:StartAICycle()
     timer.Create("SplinterCellAI_" .. self:EntIndex(), 0.2, 0, function()
-        if IsValid(self) then
+        if IsValid(self) and self:Health() > 0 then
             -- Add error handling to prevent crashes
             local success, err = pcall(function()
                 self:ExecuteTacticalAI()
@@ -508,15 +524,21 @@ function ENT:StartAICycle()
             if not success then
                 print("[SplinterCellAI] Error in AI cycle: " .. tostring(err))
                 -- Reset to safe state
-                self.tacticalState = AI_STATES.PATROL
-                self.currentPath = nil
-                self.targetPlayer = nil
+                if IsValid(self) then
+                    self.tacticalState = AI_STATES.PATROL
+                    self.currentPath = nil
+                    self.targetPlayer = nil
+                    -- Ensure we have a valid sequence to prevent T-posing
+                    self:SetSequence(self:LookupSequence("idle") or 0)
+                end
             end
         end
     end)
 end
 
 function ENT:ExecuteTacticalAI()
+    if not IsValid(self) then return end
+    
     -- Update tactical state based on current conditions
     self:UpdateTacticalState()
     
@@ -560,19 +582,23 @@ function ENT:ExecuteTacticalAI()
     self:ExecuteEnhancedCombatMechanics()
     
     -- Update networked variables
-    self:SetNWInt("tacticalState", self.tacticalState)
-    self:SetNWFloat("stealthLevel", self.stealthLevel)
-    self:SetNWString("currentObjective", self.currentObjective)
-    self:SetNWBool("nightVisionActive", self.nightVisionActive)
-    self:SetNWInt("smokeGrenades", self.smokeGrenades)
-    self:SetNWInt("ammoCount", self.ammoCount)
-    self:SetNWInt("grenadesAvailable", self.grenadesAvailable)
-    self:SetNWBool("isClimbing", self.isClimbing)
-    self:SetNWString("combatStance", self.combatStance)
-    self:SetNWBool("isInCover", self.isInCover)
+    if IsValid(self) then
+        self:SetNWInt("tacticalState", self.tacticalState)
+        self:SetNWFloat("stealthLevel", self.stealthLevel)
+        self:SetNWString("currentObjective", self.currentObjective)
+        self:SetNWBool("nightVisionActive", self.nightVisionActive)
+        self:SetNWInt("smokeGrenades", self.smokeGrenades)
+        self:SetNWInt("ammoCount", self.ammoCount)
+        self:SetNWInt("grenadesAvailable", self.grenadesAvailable)
+        self:SetNWBool("isClimbing", self.isClimbing)
+        self:SetNWString("combatStance", self.combatStance)
+        self:SetNWBool("isInCover", self.isInCover)
+    end
 end
 
 function ENT:UpdateTacticalState()
+    if not IsValid(self) then return end
+    
     local currentTime = CurTime()
     
     -- Check for state transition conditions
@@ -620,6 +646,7 @@ function ENT:UpdateTacticalState()
 end
 
 function ENT:ChangeState(newState)
+    if not IsValid(self) then return end
     if self.tacticalState ~= newState then
         self.tacticalState = newState
         self.lastStateChange = CurTime()
@@ -628,6 +655,8 @@ function ENT:ChangeState(newState)
 end
 
 function ENT:OnStateChange(newState)
+    if not IsValid(self) then return end
+    
     -- Handle state-specific initialization
     if newState == AI_STATES.PATROL then
         self.currentObjective = "patrol"
@@ -761,7 +790,9 @@ function ENT:ExecutePatrol()
     -- Occasionally pauses in pistol idle anim (ACT_IDLE_PISTOL)
     
     -- Set movement speed for patrol
-    self:SetMaxSpeed(TACTICAL_CONFIG.PATROL_SPEED)
+    if IsValid(self) then
+        self:SetMaxSpeed(TACTICAL_CONFIG.PATROL_SPEED)
+    end
     
     -- Handle current path movement
     if self.currentPath and self.currentPath:IsValid() then
@@ -809,7 +840,9 @@ function ENT:ExecuteSuspicious()
     -- Aims weapon while sweeping corners
     
     -- Set movement speed for suspicious state
-    self:SetMaxSpeed(TACTICAL_CONFIG.SUSPICIOUS_SPEED)
+    if IsValid(self) then
+        self:SetMaxSpeed(TACTICAL_CONFIG.SUSPICIOUS_SPEED)
+    end
     
     -- Build Suspicion Meter
     self.suspicionMeter = self.suspicionMeter or 0
@@ -858,7 +891,9 @@ function ENT:ExecuteHunt()
     -- Uses walls, vents, and vertical traversal to flank
     
     -- Set movement speed for hunt
-    self:SetMaxSpeed(TACTICAL_CONFIG.HUNT_SPEED)
+    if IsValid(self) then
+        self:SetMaxSpeed(TACTICAL_CONFIG.HUNT_SPEED)
+    end
     
     -- Track target while maintaining cover
     if IsValid(self.targetPlayer) then
@@ -904,7 +939,9 @@ function ENT:ExecuteEngage()
     -- Dodges side-to-side while shooting (combat evasive walk)
     
     -- Set movement speed for engagement
-    self:SetMaxSpeed(TACTICAL_CONFIG.ENGAGE_SPEED)
+    if IsValid(self) then
+        self:SetMaxSpeed(TACTICAL_CONFIG.ENGAGE_SPEED)
+    end
     
     -- Execute silent takedown if possible
     if IsValid(self.targetPlayer) and self:CanExecuteTakedown() then
@@ -944,7 +981,9 @@ function ENT:ExecuteDisappear()
     -- Resets into patrol mode if player loses track
     
     -- Set movement speed for disappear
-    self:SetMaxSpeed(TACTICAL_CONFIG.DISAPPEAR_SPEED)
+    if IsValid(self) then
+        self:SetMaxSpeed(TACTICAL_CONFIG.DISAPPEAR_SPEED)
+    end
     
     -- Handle path movement for retreat
     if self.currentPath and self.currentPath:IsValid() then
@@ -1782,6 +1821,16 @@ end
 function ENT:Think()
     -- Called every frame, handle immediate AI decisions
     if not IsValid(self) then return end
+    
+    -- Ensure we always have a valid animation sequence to prevent T-posing
+    if self:GetSequence() <= 0 then
+        local idleSeq = self:LookupSequence("idle")
+        if idleSeq and idleSeq > 0 then
+            self:SetSequence(idleSeq)
+        else
+            self:SetSequence(0)
+        end
+    end
     
     -- Update stealth level based on current conditions
     self:UpdateStealthLevel()
