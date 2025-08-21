@@ -28,6 +28,12 @@ function ENT:Draw()
     -- Draw the NextBot
     self:DrawModel()
     
+    -- Draw weapon if it exists
+    local weapon = self:GetNWEntity("weaponEntity")
+    if IsValid(weapon) then
+        weapon:DrawModel()
+    end
+    
     -- Draw tactical information if player is close
     local player = LocalPlayer()
     if IsValid(player) and player:GetPos():Distance(self:GetPos()) < 500 then

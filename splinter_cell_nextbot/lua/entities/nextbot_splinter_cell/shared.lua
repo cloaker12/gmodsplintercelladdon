@@ -7,6 +7,6 @@ ENT.Spawnable = true
 ENT.AdminSpawnable = true
 
 -- Model and properties
-ENT.Model = "models/player/combine_super_soldier.mdl"
+ENT.Model = "models/splinter_cell_3/player/Sam_E.mdl"
 ENT.Health = 200
 ENT.MaxHealth = 200
