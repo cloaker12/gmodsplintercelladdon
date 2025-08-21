@@ -173,16 +173,14 @@ function ENT:Initialize()
     self:SetMaxHealth(200)
     self:SetCollisionBounds(Vector(-16, -16, 0), Vector(16, 16, 72))
     
-    -- CRITICAL FIX: Properly initialize NextBot movement system
-    self:SetDesiredSpeed(100)
-    self:SetMaxSpeed(150)
-    self:SetAcceleration(500)
-    self:SetDeceleration(500)
-    
     -- Ensure NextBot is properly initialized
     if not self.IsNextBot then
         self.IsNextBot = true
     end
+    
+    -- Initialize NextBot movement system safely
+    self.nextbotInitialized = false
+    self:InitializeNextBotMovement()
     
     -- Set bodygroup for goggles
     self:SetBodygroup(1, 1) -- Goggles bodygroup
@@ -267,7 +265,6 @@ function ENT:Initialize()
     -- Animation variables
     self.currentAnimation = "idle"
     self.animationStartTime = CurTime()
-    self.isMoving = false
     
     -- Ensure we start with a valid animation sequence to prevent T-posing
     local idleSeq = self:LookupSequence("idle")
@@ -306,6 +303,35 @@ function ENT:Initialize()
     
     -- Network the weapon entity
     self:SetNWEntity("weaponEntity", self.weaponEntity)
+end
+
+-- Safe NextBot movement initialization
+function ENT:InitializeNextBotMovement()
+    -- Prevent infinite recursion
+    if self.nextbotInitializationAttempts and self.nextbotInitializationAttempts > 10 then
+        print("Warning: NextBot movement initialization failed after 10 attempts for entity " .. tostring(self))
+        return
+    end
+    
+    self.nextbotInitializationAttempts = (self.nextbotInitializationAttempts or 0) + 1
+    
+    -- Use a timer to ensure NextBot methods are available
+    timer.Simple(0.1, function()
+        if IsValid(self) then
+            -- Check if NextBot methods are available
+            if self.SetDesiredSpeed and self.SetMaxSpeed and self.SetAcceleration and self.SetDeceleration then
+                self:SetDesiredSpeed(100)
+                self:SetMaxSpeed(150)
+                self:SetAcceleration(500)
+                self:SetDeceleration(500)
+                self.nextbotInitialized = true
+                self.nextbotInitializationAttempts = 0 -- Reset counter on success
+            else
+                -- If methods aren't available yet, try again
+                self:InitializeNextBotMovement()
+            end
+        end
+    end)
 end
 
 function ENT:OnRemove()
@@ -2194,6 +2220,11 @@ end
 function ENT:Think()
     -- Called every frame, handle immediate AI decisions
     if not IsValid(self) then return end
+    
+    -- Ensure NextBot movement is initialized
+    if not self.nextbotInitialized then
+        self:InitializeNextBotMovement()
+    end
     
     -- Ensure we always have a valid animation sequence to prevent T-posing
     if self:GetSequence() <= 0 then
