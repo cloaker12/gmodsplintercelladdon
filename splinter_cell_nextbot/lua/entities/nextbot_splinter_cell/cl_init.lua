@@ -25,18 +25,34 @@ function ENT:SetupStealthParticles()
 end
 
 function ENT:Draw()
-    -- Draw the NextBot
-    self:DrawModel()
+    -- Check if cloaked
+    local isCloaked = self:GetNWBool("isCloaked", false)
     
-    -- Draw weapon if it exists
-    local weapon = self:GetNWEntity("weaponEntity")
-    if IsValid(weapon) then
-        weapon:DrawModel()
+    if isCloaked then
+        -- Draw with transparency when cloaked
+        render.SetBlend(0.3)
+        self:DrawModel()
+        render.SetBlend(1.0)
+    else
+        -- Draw normally
+        self:DrawModel()
     end
     
-    -- Draw tactical information if player is close
+    -- Draw weapon if it exists (with same transparency)
+    local weapon = self:GetNWEntity("weaponEntity")
+    if IsValid(weapon) then
+        if isCloaked then
+            render.SetBlend(0.3)
+            weapon:DrawModel()
+            render.SetBlend(1.0)
+        else
+            weapon:DrawModel()
+        end
+    end
+    
+    -- Draw tactical information if player is close and not cloaked
     local player = LocalPlayer()
-    if IsValid(player) and player:GetPos():Distance(self:GetPos()) < 500 then
+    if IsValid(player) and player:GetPos():Distance(self:GetPos()) < 500 and not isCloaked then
         self:DrawTacticalInfo()
     end
     

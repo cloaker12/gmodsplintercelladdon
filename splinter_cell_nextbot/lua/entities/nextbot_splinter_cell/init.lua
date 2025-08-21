@@ -47,7 +47,13 @@ local TACTICAL_CONFIG = {
     FLASH_RANGE = 150,              -- Range for flashbang effects
     WEAPON_RANGE = 500,             -- Maximum effective weapon range
     ACCURACY_DECAY = 0.1,           -- Accuracy decay per shot
-    RECOVERY_TIME = 2.0             -- Time to recover accuracy
+    RECOVERY_TIME = 2.0,            -- Time to recover accuracy
+    CLOAK_LIGHT_THRESHOLD = 0.3,    -- Light level threshold for cloak activation
+    DECOY_COOLDOWN = 30,            -- Cooldown between decoy deployments
+    STRAFE_SPEED = 150,             -- Speed when strafing during combat
+    AIM_TIME = 1.0,                 -- Time to aim before shooting
+    MAX_SPREAD = 200,               -- Maximum spread when shooting
+    MIN_SPREAD = 50                 -- Minimum spread when shooting
 }
 
 -- AI States
@@ -57,7 +63,10 @@ local AI_STATES = {
     STALKING = 3,          -- Tracking target from cover
     AMBUSH = 4,            -- Executing silent takedown
     ENGAGE_SUPPRESSED = 5, -- Firing from cover
-    RETREAT_RESET = 6      -- Breaking contact and repositioning
+    RETREAT_RESET = 6,     -- Breaking contact and repositioning
+    EVADE_HIDE = 7,        -- Evading and finding hiding spots
+    SETUP_AMBUSH = 8,      -- Setting up ambush position
+    TACTICAL_REPOSITION = 9 -- Tactical repositioning during combat
 }
 
 function ENT:Initialize()
@@ -76,6 +85,17 @@ function ENT:Initialize()
     self.shotCooldown = 0.5
     self.accuracy = 1.0
     self.lastAccuracyUpdate = CurTime()
+    self.aimStartTime = 0
+    self.isAiming = false
+    self.strafeDirection = 1
+    self.lastStrafeChange = 0
+    
+    -- Initialize abilities
+    self.smokeLastUsed = 0
+    self.decoyLastUsed = 0
+    self.isCloaked = false
+    self.cloakAlpha = 255
+    self.decoyEntity = nil
     
     -- Initialize tactical variables
     self.tacticalState = AI_STATES.IDLE_RECON
@@ -210,6 +230,111 @@ function ENT:UpdateAnimation()
     self:UpdateWeaponPosition()
 end
 
+-- Ability Functions
+function ENT:UseSmokeGrenade()
+    if CurTime() - self.smokeLastUsed < TACTICAL_CONFIG.SMOKE_COOLDOWN then return false end
+    
+    -- Create smoke grenade entity
+    local smoke = ents.Create("env_smokestack")
+    if IsValid(smoke) then
+        smoke:SetPos(self:GetPos() + Vector(0, 0, 10))
+        smoke:SetAngles(Angle(0, 0, 0))
+        smoke:SetKeyValue("InitialState", "1")
+        smoke:SetKeyValue("WindAngle", "0 0 0")
+        smoke:SetKeyValue("WindSpeed", "0")
+        smoke:SetKeyValue("rendercolor", "128 128 128")
+        smoke:SetKeyValue("renderamt", "255")
+        smoke:SetKeyValue("smokestack", "1")
+        smoke:SetKeyValue("BaseSpread", "50")
+        smoke:SetKeyValue("SpreadSpeed", "10")
+        smoke:SetKeyValue("Speed", "50")
+        smoke:SetKeyValue("StartSize", "20")
+        smoke:SetKeyValue("EndSize", "100")
+        smoke:SetKeyValue("Rate", "15")
+        smoke:SetKeyValue("JetLength", "100")
+        smoke:SetKeyValue("SmokeMaterial", "sprites/effects/smoke.vmt")
+        smoke:Spawn()
+        smoke:Activate()
+        
+        -- Remove smoke after 10 seconds
+        timer.Simple(10, function()
+            if IsValid(smoke) then
+                smoke:Remove()
+            end
+        end)
+        
+        self.smokeLastUsed = CurTime()
+        return true
+    end
+    
+    return false
+end
+
+function ENT:UseDecoy()
+    if CurTime() - self.decoyLastUsed < TACTICAL_CONFIG.DECOY_COOLDOWN then return false end
+    
+    -- Create decoy entity (prop that makes noise)
+    local decoy = ents.Create("prop_physics")
+    if IsValid(decoy) then
+        decoy:SetModel("models/props_junk/wooden_box01a.mdl")
+        decoy:SetPos(self:GetPos() + Vector(0, 0, 10))
+        decoy:SetAngles(Angle(0, 0, 0))
+        decoy:Spawn()
+        
+        -- Make decoy emit periodic sounds
+        timer.Create("DecoySound_" .. decoy:EntIndex(), 2, 0, function()
+            if IsValid(decoy) then
+                decoy:EmitSound("physics/wood/wood_box_impact_hard" .. math.random(1, 3) .. ".wav", 75, 100)
+            else
+                timer.Remove("DecoySound_" .. decoy:EntIndex())
+            end
+        end)
+        
+        -- Remove decoy after 20 seconds
+        timer.Simple(20, function()
+            if IsValid(decoy) then
+                decoy:Remove()
+            end
+        end)
+        
+        self.decoyEntity = decoy
+        self.decoyLastUsed = CurTime()
+        return true
+    end
+    
+    return false
+end
+
+function ENT:UpdateCloak()
+    local lightLevel = self:GetLightLevel(self:GetPos())
+    
+    if lightLevel < TACTICAL_CONFIG.CLOAK_LIGHT_THRESHOLD then
+        -- In shadows, activate cloak
+        if not self.isCloaked then
+            self.isCloaked = true
+            self:SetRenderMode(RENDERMODE_TRANSALPHA)
+        end
+        
+        -- Gradually become more transparent
+        if self.cloakAlpha > 50 then
+            self.cloakAlpha = math.max(50, self.cloakAlpha - 5)
+        end
+    else
+        -- In light, deactivate cloak
+        if self.isCloaked then
+            self.isCloaked = false
+            self:SetRenderMode(RENDERMODE_NORMAL)
+        end
+        
+        -- Gradually become more visible
+        if self.cloakAlpha < 255 then
+            self.cloakAlpha = math.min(255, self.cloakAlpha + 10)
+        end
+    end
+    
+    self:SetColor(Color(255, 255, 255, self.cloakAlpha))
+end
+
 function ENT:SetupTacticalAI()
     -- Initialize tactical priorities
     self.tacticalPriorities = {
@@ -244,6 +369,9 @@ function ENT:ExecuteTacticalAI()
     -- Update animations
     self:UpdateAnimation()
     
+    -- Update cloak
+    self:UpdateCloak()
+    
     -- Execute current state behavior
     if self.tacticalState == AI_STATES.IDLE_RECON then
         self:ExecuteIdleRecon()
@@ -257,6 +385,12 @@ function ENT:ExecuteTacticalAI()
         self:ExecuteEngageSuppressed()
     elseif self.tacticalState == AI_STATES.RETREAT_RESET then
         self:ExecuteRetreatReset()
+    elseif self.tacticalState == AI_STATES.EVADE_HIDE then
+        self:ExecuteEvadeHide()
+    elseif self.tacticalState == AI_STATES.SETUP_AMBUSH then
+        self:ExecuteSetupAmbush()
+    elseif self.tacticalState == AI_STATES.TACTICAL_REPOSITION then
+        self:ExecuteTacticalReposition()
     end
     
     -- Execute environment control
@@ -269,6 +403,7 @@ function ENT:ExecuteTacticalAI()
     self:SetNWInt("tacticalState", self.tacticalState)
     self:SetNWFloat("stealthLevel", self.stealthLevel)
     self:SetNWString("currentObjective", self.currentObjective)
+    self:SetNWBool("isCloaked", self.isCloaked)
 end
 
 function ENT:UpdateTacticalState()
@@ -290,6 +425,8 @@ function ENT:UpdateTacticalState()
             self:ChangeState(AI_STATES.AMBUSH)
         elseif self:IsCompromised() then
             self:ChangeState(AI_STATES.ENGAGE_SUPPRESSED)
+        elseif self:ShouldEvade() then
+            self:ChangeState(AI_STATES.EVADE_HIDE)
         end
     elseif self.tacticalState == AI_STATES.AMBUSH then
         if self:IsTakedownComplete() then
@@ -298,10 +435,30 @@ function ENT:UpdateTacticalState()
     elseif self.tacticalState == AI_STATES.ENGAGE_SUPPRESSED then
         if self:ShouldRetreat() then
             self:ChangeState(AI_STATES.RETREAT_RESET)
+        elseif self:ShouldReposition() then
+            self:ChangeState(AI_STATES.TACTICAL_REPOSITION)
         end
     elseif self.tacticalState == AI_STATES.RETREAT_RESET then
         if self:IsSafeToReset() then
             self:ChangeState(AI_STATES.IDLE_RECON)
+        end
+    elseif self.tacticalState == AI_STATES.EVADE_HIDE then
+        if self:IsHidden() then
+            self:ChangeState(AI_STATES.SETUP_AMBUSH)
+        elseif currentTime - self.lastStateChange > 10 then
+            self:ChangeState(AI_STATES.STALKING)
+        end
+    elseif self.tacticalState == AI_STATES.SETUP_AMBUSH then
+        if self:IsAmbushReady() then
+            self:ChangeState(AI_STATES.AMBUSH)
+        elseif self:IsCompromised() then
+            self:ChangeState(AI_STATES.ENGAGE_SUPPRESSED)
+        end
+    elseif self.tacticalState == AI_STATES.TACTICAL_REPOSITION then
+        if self:IsRepositioned() then
+            self:ChangeState(AI_STATES.ENGAGE_SUPPRESSED)
+        elseif currentTime - self.lastStateChange > 5 then
+            self:ChangeState(AI_STATES.ENGAGE_SUPPRESSED)
         end
     end
 end
@@ -334,6 +491,15 @@ function ENT:OnStateChange(newState)
     elseif newState == AI_STATES.RETREAT_RESET then
         self.currentObjective = "retreat"
         self:ExecuteTacticalRetreat()
+    elseif newState == AI_STATES.EVADE_HIDE then
+        self.currentObjective = "evade"
+        self:FindHidingSpot()
+    elseif newState == AI_STATES.SETUP_AMBUSH then
+        self.currentObjective = "setup_ambush"
+        self:SetupAmbushPosition()
+    elseif newState == AI_STATES.TACTICAL_REPOSITION then
+        self.currentObjective = "reposition"
+        self:FindNewCombatPosition()
     end
 end
 
@@ -478,7 +644,47 @@ function ENT:ExecuteRetreatReset()
     
     -- Deploy smoke and break contact
     if CurTime() - self.smokeLastUsed > TACTICAL_CONFIG.SMOKE_COOLDOWN then
-        self:DeploySmoke()
+        self:UseSmokeGrenade()
+    end
+end
+
+function ENT:ExecuteEvadeHide()
+    -- Move to hiding spot
+    if self.currentPath and self.currentPath:IsValid() then
+        self.currentPath:Update(self)
+    end
+    
+    -- Use decoy to distract
+    if math.random() < 0.1 then
+        self:UseDecoy()
+    end
+end
+
+function ENT:ExecuteSetupAmbush()
+    -- Stay in hiding spot and wait for target
+    if IsValid(self.targetPlayer) then
+        local distance = self:GetPos():Distance(self.targetPlayer:GetPos())
+        if distance < TACTICAL_CONFIG.TAKEDOWN_RANGE then
+            -- Target is close enough for ambush
+            return
+        end
+    end
+    
+    -- Move to better ambush position if needed
+    if self.currentPath and self.currentPath:IsValid() then
+        self.currentPath:Update(self)
+    end
+end
+
+function ENT:ExecuteTacticalReposition()
+    -- Move to new combat position
+    if self.currentPath and self.currentPath:IsValid() then
+        self.currentPath:Update(self)
+    end
+    
+    -- Use abilities during repositioning
+    if math.random() < 0.05 then
+        self:UseSmokeGrenade()
     end
 end
 
@@ -579,6 +785,47 @@ function ENT:IsSafeToReset()
         end
     end
     return true
+end
+
+function ENT:ShouldEvade()
+    if not IsValid(self.targetPlayer) then return false end
+    
+    local distance = self:GetPos():Distance(self.targetPlayer:GetPos())
+    local lightLevel = self:GetLightLevel(self:GetPos())
+    
+    -- Evade if too close and in light
+    return distance < 150 and lightLevel > 0.5
+end
+
+function ENT:IsHidden()
+    local lightLevel = self:GetLightLevel(self:GetPos())
+    return lightLevel < TACTICAL_CONFIG.CLOAK_LIGHT_THRESHOLD
+end
+
+function ENT:IsAmbushReady()
+    if not IsValid(self.targetPlayer) then return false end
+    
+    local distance = self:GetPos():Distance(self.targetPlayer:GetPos())
+    local lightLevel = self:GetLightLevel(self:GetPos())
+    
+    return distance < TACTICAL_CONFIG.TAKEDOWN_RANGE * 1.5 and lightLevel < 0.4
+end
+
+function ENT:ShouldReposition()
+    if not IsValid(self.targetPlayer) then return false end
+    
+    local distance = self:GetPos():Distance(self.targetPlayer:GetPos())
+    local timeSinceLastShot = CurTime() - self.lastShotTime
+    
+    -- Reposition if too close or after shooting for a while
+    return distance < 200 or timeSinceLastShot > 3
+end
+
+function ENT:IsRepositioned()
+    if not IsValid(self.targetPlayer) then return true end
+    
+    local distance = self:GetPos():Distance(self.targetPlayer:GetPos())
+    return distance > 300 and distance < 500
 end
 
 -- Movement and Navigation
@@ -718,6 +965,115 @@ function ENT:FindEscapeRoute()
     return bestEscape
 end
 
+function ENT:FindHidingSpot()
+    local currentPos = self:GetPos()
+    local areas = navmesh.GetAllNavAreas()
+    local bestHidingSpot = nil
+    local bestScore = -1
+    
+    if #areas > 0 then
+        for _, area in pairs(areas) do
+            local areaPos = area:GetCenter()
+            local lightLevel = self:GetLightLevel(areaPos)
+            local distanceFromTarget = 0
+            
+            if IsValid(self.targetPlayer) then
+                distanceFromTarget = areaPos:Distance(self.targetPlayer:GetPos())
+            end
+            
+            -- Score based on darkness and distance from target
+            local score = (1 - lightLevel) * 100 + distanceFromTarget * 0.1
+            
+            if score > bestScore and areaPos:Distance(currentPos) < 400 then
+                bestScore = score
+                bestHidingSpot = areaPos
+            end
+        end
+    else
+        -- Fallback hiding spot
+        local hidingDir = VectorRand()
+        hidingDir.z = 0
+        bestHidingSpot = currentPos + hidingDir:GetNormalized() * 300
+    end
+    
+    if bestHidingSpot then
+        self:MoveToPosition(bestHidingSpot)
+    end
+end
+
+function ENT:SetupAmbushPosition()
+    if not IsValid(self.targetPlayer) then return end
+    
+    local targetPos = self.targetPlayer:GetPos()
+    local areas = navmesh.GetAllNavAreas()
+    local bestAmbushSpot = nil
+    local bestScore = -1
+    
+    if #areas > 0 then
+        for _, area in pairs(areas) do
+            local areaPos = area:GetCenter()
+            local distanceToTarget = areaPos:Distance(targetPos)
+            local lightLevel = self:GetLightLevel(areaPos)
+            
+            -- Prefer dark spots close to target but not too close
+            if distanceToTarget > 100 and distanceToTarget < 300 then
+                local score = (1 - lightLevel) * 100 + (300 - distanceToTarget)
+                
+                if score > bestScore then
+                    bestScore = score
+                    bestAmbushSpot = areaPos
+                end
+            end
+        end
+    else
+        -- Fallback ambush position
+        local ambushDir = (targetPos - self:GetPos()):GetNormalized()
+        bestAmbushSpot = targetPos - ambushDir * 200
+    end
+    
+    if bestAmbushSpot then
+        self:MoveToPosition(bestAmbushSpot)
+    end
+end
+
+function ENT:FindNewCombatPosition()
+    if not IsValid(self.targetPlayer) then return end
+    
+    local targetPos = self.targetPlayer:GetPos()
+    local currentPos = self:GetPos()
+    local areas = navmesh.GetAllNavAreas()
+    local bestCombatSpot = nil
+    local bestScore = -1
+    
+    if #areas > 0 then
+        for _, area in pairs(areas) do
+            local areaPos = area:GetCenter()
+            local distanceToTarget = areaPos:Distance(targetPos)
+            local distanceFromCurrent = areaPos:Distance(currentPos)
+            
+            -- Prefer positions at medium range with cover
+            if distanceToTarget > 300 and distanceToTarget < 500 and distanceFromCurrent > 100 then
+                local coverScore = self:CalculateCoverScore(areaPos, targetPos)
+                local score = coverScore + (500 - distanceToTarget) * 0.1
+                
+                if score > bestScore then
+                    bestScore = score
+                    bestCombatSpot = areaPos
+                end
+            end
+        end
+    else
+        -- Fallback combat position
+        local combatDir = VectorRand()
+        combatDir.z = 0
+        bestCombatSpot = targetPos + combatDir:GetNormalized() * 400
+    end
+    
+    if bestCombatSpot then
+        self:MoveToPosition(bestCombatSpot)
+    end
+end
+
 -- Environment Control
 function ENT:DisableNearbyLights()
     local lights = ents.FindByClass("light*")
@@ -832,17 +1188,39 @@ function ENT:FireSuppressedShot()
     local distance = self:GetPos():Distance(self.targetPlayer:GetPos())
     if distance > TACTICAL_CONFIG.WEAPON_RANGE then return end
     
-    -- Play aim animation
-    self:PlayAnimation("aim")
+    -- Face the target
+    local targetDir = (self.targetPlayer:GetPos() - self:GetPos()):GetNormalized()
+    local targetAng = targetDir:Angle()
+    self:SetAngles(Angle(0, targetAng.yaw, 0))
     
-    -- Calculate accuracy-based shot
+    -- Strafe while shooting
+    self:StrafeDuringCombat()
+    
+    -- Start aiming if not already
+    if not self.isAiming then
+        self.isAiming = true
+        self.aimStartTime = CurTime()
+        self:PlayAnimation("aim")
+        return -- Wait for aim time
+    end
+    
+    -- Check if we've aimed long enough
+    if CurTime() - self.aimStartTime < TACTICAL_CONFIG.AIM_TIME then
+        return
+    end
+    
+    -- Calculate realistic shot with spread
     local accuracy = self.accuracy
     local targetPos = self.targetPlayer:GetPos() + Vector(0, 0, 50)
     local myPos = self:GetPos() + Vector(0, 0, 50)
     
-    -- Add accuracy-based spread
-    local spread = (1.0 - accuracy) * 100
-    local spreadVector = VectorRand() * spread
+    -- Add realistic spread based on accuracy and distance
+    local baseSpread = TACTICAL_CONFIG.MIN_SPREAD + (TACTICAL_CONFIG.MAX_SPREAD - TACTICAL_CONFIG.MIN_SPREAD) * (1.0 - accuracy)
+    local distanceSpread = distance * 0.1 -- More spread at longer ranges
+    local totalSpread = baseSpread + distanceSpread
+    
+    -- Add random spread
+    local spreadVector = VectorRand() * totalSpread
     local finalTarget = targetPos + spreadVector
     
     -- Fire suppressed weapon
@@ -852,44 +1230,56 @@ function ENT:FireSuppressedShot()
         filter = {self, self.targetPlayer}
     })
     
-    if not trace.Hit then
-        -- Create bullet effect
-        local effect = EffectData()
-        effect:SetOrigin(trace.HitPos)
-        effect:SetNormal(trace.HitNormal)
-        util.Effect("cball_bounce", effect)
-        
-        -- Damage player with improved accuracy
+    -- Create bullet effect
+    local effect = EffectData()
+    effect:SetOrigin(trace.HitPos)
+    effect:SetNormal(trace.HitNormal)
+    util.Effect("cball_bounce", effect)
+    
+    -- Check if we hit the target
+    if trace.Entity == self.targetPlayer then
+        -- Damage player
         local dmg = DamageInfo()
-        dmg:SetDamage(35) -- Increased damage
+        dmg:SetDamage(35)
         dmg:SetAttacker(self)
         dmg:SetDamageType(DMG_BULLET)
         
         self.targetPlayer:TakeDamageInfo(dmg)
-        
-        -- Play suppressed shot sound
-        self:EmitSound("weapons/silencer.wav", 50, 100)
-        
-        -- Update last shot time
-        self.lastShotTime = CurTime()
-        
-        -- Reduce accuracy and stealth
-        self.accuracy = math.max(0.3, self.accuracy - TACTICAL_CONFIG.ACCURACY_DECAY)
-        self.stealthLevel = math.max(0.0, self.stealthLevel - 0.1)
     end
+    
+    -- Play suppressed shot sound
+    self:EmitSound("weapons/silencer.wav", 50, 100)
+    
+    -- Update last shot time and reset aiming
+    self.lastShotTime = CurTime()
+    self.isAiming = false
+    
+    -- Reduce accuracy and stealth
+    self.accuracy = math.max(0.3, self.accuracy - TACTICAL_CONFIG.ACCURACY_DECAY)
+    self.stealthLevel = math.max(0.0, self.stealthLevel - 0.1)
 end
 
-function ENT:DeploySmoke()
-    if CurTime() - self.smokeLastUsed < TACTICAL_CONFIG.SMOKE_COOLDOWN then return end
+function ENT:StrafeDuringCombat()
+    if not IsValid(self.targetPlayer) then return end
     
-    -- Create smoke effect
-    local effect = EffectData()
-    effect:SetOrigin(self:GetPos())
-    effect:SetScale(2)
-    util.Effect("smoke", effect)
+    local currentTime = CurTime()
     
-    self.smokeLastUsed = CurTime()
+    -- Change strafe direction periodically
+    if currentTime - self.lastStrafeChange > 2 then
+        self.strafeDirection = self.strafeDirection * -1
+        self.lastStrafeChange = currentTime
+    end
+    
+    -- Calculate strafe direction
+    local targetDir = (self.targetPlayer:GetPos() - self:GetPos()):GetNormalized()
+    local rightDir = targetDir:Cross(Vector(0, 0, 1))
+    local strafeVector = rightDir * self.strafeDirection * TACTICAL_CONFIG.STRAFE_SPEED
+    
+    -- Apply strafe movement
+    self:SetVelocity(strafeVector)
 end
+
+
 
 -- Utility Functions
 function ENT:GetLightLevel(position)

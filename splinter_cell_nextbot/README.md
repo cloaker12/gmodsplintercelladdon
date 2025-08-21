@@ -1,6 +1,6 @@
-# Splinter Cell NextBot - Enhanced Edition
+# Splinter Cell NextBot - Advanced Edition
 
-A sophisticated stealth-focused NextBot featuring advanced AI behaviors inspired by Splinter Cell agents. This enhanced version includes improved animations, combat system, and tactical AI.
+A sophisticated stealth-focused NextBot featuring advanced AI behaviors inspired by Splinter Cell agents. This advanced version includes improved animations, combat system, tactical AI, and special abilities like smoke grenades, decoys, and cloaking.
 
 ## Features
 
@@ -22,28 +22,40 @@ A sophisticated stealth-focused NextBot featuring advanced AI behaviors inspired
   - Recovers over time when not shooting
   - Realistic spread based on accuracy level
 
-### 🧠 **Enhanced AI**
-- **Improved Detection**: 
+### 🧠 **Advanced AI**
+- **Enhanced Detection**: 
   - Visual contact detection
   - Flashlight detection
   - Sound-based detection
   - Movement-based detection
-- **Tactical States**:
+  - Environmental awareness
+- **Advanced Tactical States** (9 total):
   - Idle Reconnaissance
   - Investigation
   - Stalking
   - Ambush
   - Suppressed Engagement
   - Tactical Retreat
+  - Evade & Hide
+  - Setup Ambush
+  - Tactical Reposition
 - **Stealth System**: 
   - Light level awareness
   - Stealth level management
   - Environmental interaction
+  - Automatic cloaking in shadows
 
 ### 🎮 **Sandbox Integration**
 - **NPCs Tab**: Appears in the NPCs tab in sandbox mode
 - **Spawnable**: Can be spawned through the spawn menu
 - **Admin Spawnable**: Available to administrators
+
+### 🎯 **Special Abilities**
+- **Smoke Grenade**: Creates smoke screen for tactical advantage
+- **Decoy**: Deploys noise-making decoy to distract enemies
+- **Cloak**: Automatically activates in shadow areas for stealth
+- **Enhanced Navigation**: Better pathfinding and tactical positioning
+- **Strafing Combat**: Moves while shooting for realistic combat
 
 ## Installation
 
@@ -80,15 +92,20 @@ lua_run_file("splinter_cell_nextbot/test_npc.lua")
 
 ### Combat Mechanics
 - **Range**: Maximum effective range of 500 units
-- **Damage**: 35 damage per shot (increased from 25)
+- **Damage**: 35 damage per shot
 - **Cooldown**: 0.5 seconds between shots
 - **Accuracy**: Starts at 100%, decreases with firing, recovers over time
+- **Aim Time**: 1 second to aim before shooting (less aimbot-like)
+- **Strafing**: Moves side-to-side during combat
+- **Realistic Spread**: Based on accuracy, distance, and movement
 
 ### Stealth Features
 - **Light Awareness**: Detects and avoids bright areas
 - **Sound Distractions**: Creates environmental noise
 - **Psychological Ops**: Whispers and flash effects
 - **Environmental Control**: Disables nearby light sources
+- **Automatic Cloaking**: Becomes transparent in shadow areas
+- **Tactical Evasion**: Finds hiding spots and sets up ambushes
 
 ## Configuration
 
@@ -101,7 +118,13 @@ local TACTICAL_CONFIG = {
     TAKEDOWN_RANGE = 100,          -- Silent takedown range
     WEAPON_RANGE = 500,             -- Maximum weapon range
     ACCURACY_DECAY = 0.1,           -- Accuracy loss per shot
-    RECOVERY_TIME = 2.0             -- Accuracy recovery time
+    RECOVERY_TIME = 2.0,            -- Accuracy recovery time
+    CLOAK_LIGHT_THRESHOLD = 0.3,    -- Light level for cloak activation
+    DECOY_COOLDOWN = 30,            -- Decoy cooldown time
+    STRAFE_SPEED = 150,             -- Strafing speed during combat
+    AIM_TIME = 1.0,                 -- Time to aim before shooting
+    MAX_SPREAD = 200,               -- Maximum shot spread
+    MIN_SPREAD = 50                 -- Minimum shot spread
 }
 ```
 
@@ -125,6 +148,16 @@ local TACTICAL_CONFIG = {
 - **Development**: AI Assistant
 
 ## Version History
+
+### v1.2 (Advanced Edition)
+- ✅ Added smoke grenade ability with entity creation
+- ✅ Added decoy ability (noise-making distraction)
+- ✅ Added automatic cloaking in shadow areas
+- ✅ Enhanced navigation with 9 AI states
+- ✅ Improved combat with strafing and realistic shooting
+- ✅ Less aimbot-like behavior with aim time and spread
+- ✅ Better evasion and ambush capabilities
+- ✅ Enhanced tactical positioning and cover usage
 
 ### v1.1 (Enhanced Edition)
 - ✅ Updated to Splinter Cell 3 Sam Fisher model
