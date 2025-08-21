@@ -289,6 +289,95 @@ function GM:IsGoodHidingSpot(pos, hiddenPly)
     return coverCount >= 2 -- Has cover from at least 2 directions
 end
 
+-- Suggest ambush positions for the Hidden
+function GM:SuggestAmbushPositions(hiddenPly, nearbyHumans)
+    if not IsValid(hiddenPly) or #nearbyHumans == 0 then return end
+    
+    local ambushSpots = {}
+    local currentPos = hiddenPly:GetPos()
+    
+    -- Find potential ambush positions near human players
+    for _, humanData in pairs(nearbyHumans) do
+        local human = humanData.player
+        local humanPos = human:GetPos()
+        
+        -- Look for positions that provide cover and good attack angles
+        for i = 1, 12 do
+            local angle = (i - 1) * 30
+            local dir = Vector(math.cos(math.rad(angle)), math.sin(math.rad(angle)), 0)
+            local testPos = humanPos + dir * math.random(150, 300)
+            testPos.z = humanPos.z + math.random(-50, 100)
+            
+            -- Check if position is valid and provides good ambush opportunity
+            local tr = util.TraceLine({
+                start = humanPos + Vector(0, 0, 36),
+                endpos = testPos + Vector(0, 0, 36),
+                filter = human
+            })
+            
+            if tr.Fraction < 0.8 and self:IsGoodHidingSpot(testPos, hiddenPly) then
+                -- Check if Hidden can reach this position
+                local pathTr = util.TraceLine({
+                    start = currentPos,
+                    endpos = testPos,
+                    filter = hiddenPly
+                })
+                
+                if pathTr.Fraction > 0.7 then
+                    table.insert(ambushSpots, {
+                        pos = testPos,
+                        target = human,
+                        score = self:CalculateAmbushScore(testPos, humanPos, currentPos)
+                    })
+                end
+            end
+        end
+    end
+    
+    -- Sort by score and suggest best position
+    if #ambushSpots > 0 then
+        table.sort(ambushSpots, function(a, b) return a.score > b.score end)
+        local bestSpot = ambushSpots[1]
+        
+        hiddenPly:SetNWVector("AmbushTarget", bestSpot.pos)
+        hiddenPly:SetNWEntity("AmbushVictim", bestSpot.target)
+        hiddenPly:SetNWBool("HasAmbushSuggestion", true)
+    end
+end
+
+-- Calculate ambush position score
+function GM:CalculateAmbushScore(ambushPos, targetPos, hiddenPos)
+    local score = 0
+    
+    -- Distance from target (closer is better, but not too close)
+    local targetDist = ambushPos:Distance(targetPos)
+    if targetDist > 100 and targetDist < 250 then
+        score = score + 50
+    elseif targetDist <= 100 then
+        score = score + 25 -- Too close might be risky
+    end
+    
+    -- Distance from current Hidden position (closer is easier to reach)
+    local hiddenDist = ambushPos:Distance(hiddenPos)
+    score = score + math.max(0, 100 - (hiddenDist / 10))
+    
+    -- Height advantage
+    if ambushPos.z > targetPos.z then
+        score = score + 30
+    end
+    
+    -- Check concealment (darkness bonus)
+    local lightLevel = render.GetLightColor(ambushPos)
+    local avgLight = (lightLevel.r + lightLevel.g + lightLevel.b) / 3
+    if avgLight < 0.2 then
+        score = score + 40
+    elseif avgLight < 0.4 then
+        score = score + 20
+    end
+    
+    return score
+end
+
 -- Memory system for tracking events
 function GM:AddSuspiciousArea(pos, reason)
     self.AIMemory.SuspiciousAreas[pos] = {

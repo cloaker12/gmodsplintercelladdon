@@ -28,18 +28,16 @@ local SC_MODELS = {
 -- Enhanced model selection for IRIS team
 GM.EnhancedModels = {
     IRIS = {
-        "models/splinter_cell_3/player/Sam_E.mdl",
+        "models/splinter_cell_3/player/Sam_E.mdl",  -- Primary I.R.I.S model
+        "models/splinter_cell_3/player/Sam_E.mdl",  -- Increased chance
+        "models/splinter_cell_3/player/Sam_E.mdl",  -- Increased chance
         "models/player/riot.mdl",
         "models/player/urban.mdl",
-        "models/player/gasmask.mdl",
-        "models/player/police.mdl",
-        "models/player/police_fem.mdl"
+        "models/player/gasmask.mdl"
     },
     Captain = {
-        "models/splinter_cell_3/player/Sam_E.mdl",
-        "models/player/combine_super_soldier.mdl",
-        "models/player/combine_soldier_prisonguard.mdl",
-        "models/player/combine_soldier.mdl"
+        "models/splinter_cell_3/player/Sam_E.mdl",  -- Captains always get Sam Fisher model
+        "models/splinter_cell_3/player/Sam_E.mdl"
     }
 }
 

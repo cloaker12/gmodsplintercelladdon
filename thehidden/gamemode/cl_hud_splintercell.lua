@@ -337,13 +337,49 @@ DrawSCHud[TEAM_HIDDEN] = function(ply)
     local humans_alive = #team.GetPlayers(TEAM_HUMAN)
     DrawSCText("PREY: " .. humans_alive, "SC_HUD_Medium", ScrW() - 150, 30, SC_RED, Color(255, 100, 100, 100))
     
-    -- Hunt mode indicator
-    if ply:GetNWBool("HiddenVision", false) then
+    -- Hunt mode indicator and night vision battery
+    if ply:HiddenVision() then
         DrawSCText("HUNT MODE", "SC_HUD_Medium", ScrW() / 2 - 60, 50, SC_RED, Color(255, 100, 100, 100))
         
         -- Draw vision overlay
         surface.SetDrawColor(255, 0, 0, 20)
         surface.DrawRect(0, 0, ScrW(), ScrH())
+    end
+    
+    -- Night vision battery indicator (top right corner)
+    local nv_battery = ply:GetNWFloat("NVBattery", 100)
+    local battery_x = ScrW() - 200
+    local battery_y = 20
+    local battery_w = 150
+    local battery_h = 20
+    
+    -- Battery background
+    surface.SetDrawColor(SC_BLACK)
+    surface.DrawRect(battery_x - 5, battery_y - 5, battery_w + 10, battery_h + 10)
+    
+    -- Battery border
+    local border_color = nv_battery > 20 and SC_GREEN or SC_RED
+    surface.SetDrawColor(border_color)
+    surface.DrawOutlinedRect(battery_x - 2, battery_y - 2, battery_w + 4, battery_h + 4)
+    
+    -- Battery fill
+    local fill_w = (battery_w - 4) * (nv_battery / 100)
+    local fill_color = SC_GREEN
+    if nv_battery <= 20 then
+        fill_color = SC_RED
+    elseif nv_battery <= 50 then
+        fill_color = SC_ORANGE
+    end
+    
+    surface.SetDrawColor(fill_color)
+    surface.DrawRect(battery_x, battery_y, fill_w, battery_h - 4)
+    
+    -- Battery percentage text
+    DrawSCText(string.format("NV: %d%%", math.floor(nv_battery)), "SC_HUD_Small", battery_x + 5, battery_y - 25, SC_WHITE, SC_GREEN_GLOW)
+    
+    -- Low battery warning
+    if nv_battery <= 20 and math.sin(CurTime() * 8) > 0 then
+        DrawSCText("LOW BATTERY", "SC_HUD_Small", battery_x + 5, battery_y + 25, SC_RED, Color(255, 100, 100, 150))
     end
     
     -- Ability cooldown indicators

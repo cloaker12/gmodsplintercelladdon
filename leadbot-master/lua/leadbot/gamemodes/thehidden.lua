@@ -184,7 +184,44 @@ function LeadBot.StartCommand(bot, cmd)
         buttons = buttons + IN_DUCK
     end
 
-    bot:SelectWeapon((IsValid(controller.Target) and controller.Target:GetPos():DistToSqr(controller:GetPos()) < 129000 and "weapon_shotgun") or "weapon_smg1")
+    -- Enhanced weapon selection for Hidden gamemode
+    local preferredWeapon = "weapon_hdn_mp5"
+    if IsValid(controller.Target) then
+        local distance = controller.Target:GetPos():DistToSqr(controller:GetPos())
+        if distance < 90000 then
+            -- Close range - use shotgun or SMG
+            if bot:HasWeapon("weapon_hdn_m3") then
+                preferredWeapon = "weapon_hdn_m3"
+            elseif bot:HasWeapon("weapon_hdn_ump") then
+                preferredWeapon = "weapon_hdn_ump"
+            end
+        elseif distance < 250000 then
+            -- Medium range - use assault rifles
+            if bot:HasWeapon("weapon_hdn_ak47") then
+                preferredWeapon = "weapon_hdn_ak47"
+            elseif bot:HasWeapon("weapon_hdn_m16") then
+                preferredWeapon = "weapon_hdn_m16"
+            end
+        else
+            -- Long range - use sniper rifles
+            if bot:HasWeapon("weapon_hdn_sg550") then
+                preferredWeapon = "weapon_hdn_sg550"
+            end
+        end
+    end
+    
+    -- Fallback to any available Hidden weapon
+    if not bot:HasWeapon(preferredWeapon) then
+        local availableWeapons = {"weapon_hdn_mp5", "weapon_hdn_ak47", "weapon_hdn_m16", "weapon_hdn_ump", "weapon_hdn_m3", "weapon_hdn_p90"}
+        for _, wep in ipairs(availableWeapons) do
+            if bot:HasWeapon(wep) then
+                preferredWeapon = wep
+                break
+            end
+        end
+    end
+    
+    bot:SelectWeapon(preferredWeapon)
     cmd:ClearButtons()
     cmd:ClearMovement()
     cmd:SetButtons(buttons)

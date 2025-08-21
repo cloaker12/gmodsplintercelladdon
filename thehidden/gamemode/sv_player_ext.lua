@@ -252,6 +252,54 @@ net.Receive( "HiddenTaunt", function( len, ply )
 end)
 
 net.Receive( "ToggleHiddenVision", function( len, ply )
+	-- Initialize night vision battery if not set
+	if not ply.NVBattery then
+		ply.NVBattery = 100
+		ply.NVBatteryRechargeTime = 0
+	end
+	
 	local hidden_vision = ply:GetInt( "HiddenVision", 0 ) == 0 and 1 or 0
+	
+	-- Only allow night vision if battery has charge
+	if hidden_vision == 1 and ply.NVBattery <= 0 then
+		ply:ChatPrint("Night vision battery depleted!")
+		return
+	end
+	
 	ply:SetInt( "HiddenVision", hidden_vision )
+	ply:SetNWFloat("NVBattery", ply.NVBattery)
+end)
+
+-- Night vision battery drain and recharge system
+hook.Add("Think", "NightVisionBattery", function()
+	for _, ply in pairs(player.GetAll()) do
+		if IsValid(ply) and ply:Alive() then
+			-- Initialize battery if not set
+			if not ply.NVBattery then
+				ply.NVBattery = 100
+				ply.NVBatteryRechargeTime = 0
+				ply:SetNWFloat("NVBattery", ply.NVBattery)
+			end
+			
+			if ply:HiddenVision() then
+				-- Drain battery when night vision is active
+				ply.NVBattery = math.max(0, ply.NVBattery - (FrameTime() * 2)) -- 2% per second
+				ply.NVBatteryRechargeTime = CurTime() + 3 -- 3 second delay before recharge
+				
+				-- Auto-disable when battery is empty
+				if ply.NVBattery <= 0 then
+					ply:SetInt("HiddenVision", 0)
+					ply:ChatPrint("Night vision battery depleted!")
+				end
+			else
+				-- Recharge battery when night vision is off and delay has passed
+				if CurTime() > ply.NVBatteryRechargeTime then
+					ply.NVBattery = math.min(100, ply.NVBattery + (FrameTime() * 5)) -- 5% per second recharge
+				end
+			end
+			
+			-- Sync battery level to client
+			ply:SetNWFloat("NVBattery", ply.NVBattery)
+		end
+	end
 end)
