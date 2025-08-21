@@ -28,8 +28,11 @@ end
 
 function PLY:SetUpLoadout()
 	self.Equipment = {}
-	self:SetEquipment( tostring( table.Random( LDT.Equipment ) ), tostring( table.Random( LDT.Equipment2 ) ) )
-	self:SetSelectedWeapon( tostring( table.Random( LDT.Weapons ) ) )
+	-- Don't auto-select random equipment and weapons - let players choose via F2 menu
+	-- But provide default weapon if none selected
+	if not self.SelectedWeapon then
+		self:SetSelectedWeapon("weapon_hdn_m16") -- Default weapon
+	end
 	self.Data = {}
 end
 
