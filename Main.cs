@@ -98,44 +98,89 @@ namespace ConvoyBreakerCallout
 
         public override bool OnBeforeCalloutDisplayed()
         {
-            // Find suitable spawn points
-            convoySpawnPoint = World.GetNextPositionOnStreet(Game.LocalPlayer.Character.Position.Around(800f));
-            convoyDestination = World.GetNextPositionOnStreet(convoySpawnPoint.Around(1500f));
-            ambushPoint = World.GetNextPositionOnStreet(Vector3.Lerp(convoySpawnPoint, convoyDestination, 0.4f).Around(200f));
-            cartelBaseLocation = World.GetNextPositionOnStreet(convoyDestination.Around(300f));
-            heliInsertionPoint = ambushPoint + new Vector3(0f, 0f, 50f);
-            extractionPoint = ambushPoint.Around(100f);
+            try
+            {
+                Game.LogTrivial("ConvoyBreakerCallout: OnBeforeCalloutDisplayed - Starting callout setup...");
+                
+                // Find suitable spawn points
+                convoySpawnPoint = World.GetNextPositionOnStreet(Game.LocalPlayer.Character.Position.Around(800f));
+                convoyDestination = World.GetNextPositionOnStreet(convoySpawnPoint.Around(1500f));
+                ambushPoint = World.GetNextPositionOnStreet(Vector3.Lerp(convoySpawnPoint, convoyDestination, 0.4f).Around(200f));
+                cartelBaseLocation = World.GetNextPositionOnStreet(convoyDestination.Around(300f));
+                heliInsertionPoint = ambushPoint + new Vector3(0f, 0f, 50f);
+                extractionPoint = ambushPoint.Around(100f);
 
-            // Set callout info
-            ShowCalloutAreaBlipBeforeAccepting(ambushPoint, 75f);
-            CalloutMessage = "[CLASSIFIED] Operation: Convoy Breaker";
-            CalloutPosition = ambushPoint;
-            
-            // Play tactical dispatch audio
-            Functions.PlayScannerAudioUsingPosition("ATTENTION_ALL_UNITS WE_HAVE CRIME_GANG_RELATED IN_OR_ON_POSITION", ambushPoint);
-            
-            return base.OnBeforeCalloutDisplayed();
+                Game.LogTrivial($"ConvoyBreakerCallout: Spawn points calculated - Convoy: {convoySpawnPoint}, Ambush: {ambushPoint}");
+
+                // Set callout info
+                ShowCalloutAreaBlipBeforeAccepting(ambushPoint, 75f);
+                CalloutMessage = "[CLASSIFIED] Operation: Convoy Breaker";
+                CalloutPosition = ambushPoint;
+                
+                // Play tactical dispatch audio
+                Functions.PlayScannerAudioUsingPosition("ATTENTION_ALL_UNITS WE_HAVE CRIME_GANG_RELATED IN_OR_ON_POSITION", ambushPoint);
+                
+                Game.LogTrivial("ConvoyBreakerCallout: OnBeforeCalloutDisplayed - Setup completed successfully");
+                return base.OnBeforeCalloutDisplayed();
+            }
+            catch (Exception ex)
+            {
+                Game.LogTrivial($"ConvoyBreakerCallout: ERROR in OnBeforeCalloutDisplayed - {ex.Message}");
+                Game.LogTrivial($"ConvoyBreakerCallout: Stack trace - {ex.StackTrace}");
+                return false; // Prevent callout from being displayed if there's an error
+            }
         }
 
         public override bool OnCalloutAccepted()
         {
-            Game.LogTrivial("ConvoyBreakerCallout: Callout accepted by player!");
-            
-            calloutAccepted = true;
-            missionStartTime = DateTime.Now;
-            currentPhase = MissionPhase.Intercept;
-            
-            // Mission briefing
-            DisplayTacticalBriefing();
-            
-            // Setup mission elements
-            SetupConvoy();
-            SetupAmbushPoint();
-            DeployGhostTeam();
-            
-            Game.LogTrivial("ConvoyBreakerCallout: Mission initiated - Operation Convoy Breaker");
-            Game.LogTrivial("ConvoyBreakerCallout: All setup complete. Process loop should now be running.");
-            return base.OnCalloutAccepted();
+            try
+            {
+                Game.LogTrivial("ConvoyBreakerCallout: Callout accepted by player!");
+                
+                calloutAccepted = true;
+                missionStartTime = DateTime.Now;
+                currentPhase = MissionPhase.Intercept;
+                
+                // Mission briefing
+                DisplayTacticalBriefing();
+                
+                // Setup mission elements with individual error handling
+                Game.LogTrivial("ConvoyBreakerCallout: Starting mission setup...");
+                
+                SetupConvoy();
+                Game.LogTrivial("ConvoyBreakerCallout: Convoy setup completed");
+                
+                SetupAmbushPoint();
+                Game.LogTrivial("ConvoyBreakerCallout: Ambush point setup completed");
+                
+                // Delay ghost team deployment to prevent timing issues
+                GameFiber.StartNew(() =>
+                {
+                    GameFiber.Sleep(2000); // Wait 2 seconds before deploying ghost team
+                    DeployGhostTeam();
+                });
+                
+                Game.LogTrivial("ConvoyBreakerCallout: Mission initiated - Operation Convoy Breaker");
+                Game.LogTrivial("ConvoyBreakerCallout: All setup complete. Process loop should now be running.");
+                return base.OnCalloutAccepted();
+            }
+            catch (Exception ex)
+            {
+                Game.LogTrivial($"ConvoyBreakerCallout: CRITICAL ERROR in OnCalloutAccepted - {ex.Message}");
+                Game.LogTrivial($"ConvoyBreakerCallout: Stack trace - {ex.StackTrace}");
+                
+                // Clean up any partially created objects
+                try
+                {
+                    End();
+                }
+                catch (Exception cleanupEx)
+                {
+                    Game.LogTrivial($"ConvoyBreakerCallout: Error during emergency cleanup - {cleanupEx.Message}");
+                }
+                
+                return false; // Prevent callout from starting if there's an error
+            }
         }
 
         #endregion
@@ -155,15 +200,28 @@ namespace ConvoyBreakerCallout
 
         private void SetupConvoy()
         {
-            Game.LogTrivial("ConvoyBreakerCallout: Setting up convoy vehicles...");
-            Game.LogTrivial($"ConvoyBreakerCallout: Convoy spawn point: {convoySpawnPoint}");
-            Game.LogTrivial($"ConvoyBreakerCallout: Convoy destination: {convoyDestination}");
-            
-            // Lead SUV - Scouts
-            leadSUV = new Vehicle("GRANGER2", convoySpawnPoint);
-            leadSUV.IsPersistent = true;
-            leadSUV.PrimaryColor = Color.Black;
-            leadSUV.SecondaryColor = Color.Black;
+            try
+            {
+                Game.LogTrivial("ConvoyBreakerCallout: Setting up convoy vehicles...");
+                Game.LogTrivial($"ConvoyBreakerCallout: Convoy spawn point: {convoySpawnPoint}");
+                Game.LogTrivial($"ConvoyBreakerCallout: Convoy destination: {convoyDestination}");
+                
+                // Validate spawn points before creating vehicles
+                if (convoySpawnPoint == Vector3.Zero || convoyDestination == Vector3.Zero)
+                {
+                    throw new Exception("Invalid spawn points - convoy spawn or destination is zero vector");
+                }
+                
+                // Lead SUV - Scouts
+                leadSUV = new Vehicle("GRANGER2", convoySpawnPoint);
+                if (!leadSUV.Exists())
+                {
+                    throw new Exception("Failed to create lead SUV");
+                }
+                
+                leadSUV.IsPersistent = true;
+                leadSUV.PrimaryColor = Color.Black;
+                leadSUV.SecondaryColor = Color.Black;
             Game.LogTrivial($"ConvoyBreakerCallout: Lead SUV spawned at {leadSUV.Position}");
             
             // Cargo Trucks
@@ -195,7 +253,14 @@ namespace ConvoyBreakerCallout
             convoyBlip.Name = "Cartel Convoy";
             convoyBlip.EnableRoute(Color.Red);
             
-            Game.LogTrivial("ConvoyBreakerCallout: Convoy setup complete. All vehicles spawned and configured.");
+                Game.LogTrivial("ConvoyBreakerCallout: Convoy setup complete. All vehicles spawned and configured.");
+            }
+            catch (Exception ex)
+            {
+                Game.LogTrivial($"ConvoyBreakerCallout: ERROR in SetupConvoy - {ex.Message}");
+                Game.LogTrivial($"ConvoyBreakerCallout: Stack trace - {ex.StackTrace}");
+                throw; // Re-throw to be caught by OnCalloutAccepted
+            }
         }
 
         private void PopulateConvoyWithCartel()
@@ -274,12 +339,28 @@ namespace ConvoyBreakerCallout
         {
             GameFiber.StartNew(() =>
             {
-                // Spawn Annihilator 2 helicopter
-                annihilator2 = new Vehicle("ANNIHILATOR2", heliInsertionPoint);
-                annihilator2.IsPersistent = true;
-                annihilator2.PrimaryColor = Color.Black;
-                annihilator2.SecondaryColor = Color.Black;
-                annihilator2.IsEngineOn = true;
+                try
+                {
+                    Game.LogTrivial("ConvoyBreakerCallout: Deploying Ghost team...");
+                    
+                    // Validate helicopter insertion point
+                    if (heliInsertionPoint == Vector3.Zero)
+                    {
+                        Game.LogTrivial("ConvoyBreakerCallout: WARNING - Invalid helicopter insertion point, using default");
+                        heliInsertionPoint = Game.LocalPlayer.Character.Position + new Vector3(0f, 0f, 100f);
+                    }
+                    
+                    // Spawn Annihilator 2 helicopter
+                    annihilator2 = new Vehicle("ANNIHILATOR2", heliInsertionPoint);
+                    if (!annihilator2.Exists())
+                    {
+                        throw new Exception("Failed to create Annihilator 2 helicopter");
+                    }
+                    
+                    annihilator2.IsPersistent = true;
+                    annihilator2.PrimaryColor = Color.Black;
+                    annihilator2.SecondaryColor = Color.Black;
+                    annihilator2.IsEngineOn = true;
                 
                 // Pilot
                 heliPilot = annihilator2.CreateRandomDriver();
@@ -299,7 +380,17 @@ namespace ConvoyBreakerCallout
                 // Radio chatter
                 PlayRadioChatter("Ghost Lead", "Ghost team on station. Awaiting your signal, Shadow Unit.");
                 
-                ghostTeamDeployed = true;
+                    ghostTeamDeployed = true;
+                    Game.LogTrivial("ConvoyBreakerCallout: Ghost team deployment completed successfully");
+                }
+                catch (Exception ex)
+                {
+                    Game.LogTrivial($"ConvoyBreakerCallout: ERROR in DeployGhostTeam - {ex.Message}");
+                    Game.LogTrivial($"ConvoyBreakerCallout: Stack trace - {ex.StackTrace}");
+                    
+                    // Set flag to false so the mission can continue without ghost team if needed
+                    ghostTeamDeployed = false;
+                }
             });
         }
 
