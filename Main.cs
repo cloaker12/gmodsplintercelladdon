@@ -318,9 +318,9 @@ namespace ConvoyBreakerCallout
             Game.LogTrivial($"ConvoyBreakerCallout: Lead SUV driving to destination: {convoyDestination}");
             
             // Other vehicles follow the lead vehicle in formation
-            cargoTruck1.Driver.Tasks.FollowToOffsetFromEntity(leadSUV, Vector3.RelativeBack * 15f, 20f);
-            cargoTruck2.Driver.Tasks.FollowToOffsetFromEntity(cargoTruck1, Vector3.RelativeBack * 15f, 20f);
-            rearSUV.Driver.Tasks.FollowToOffsetFromEntity(cargoTruck2, Vector3.RelativeBack * 15f, 20f);
+            cargoTruck1.Driver.Tasks.FollowToOffsetFromEntity(leadSUV, Vector3.RelativeBack * 15f, 20f, VehicleDrivingFlags.Normal);
+            cargoTruck2.Driver.Tasks.FollowToOffsetFromEntity(cargoTruck1, Vector3.RelativeBack * 15f, 20f, VehicleDrivingFlags.Normal);
+            rearSUV.Driver.Tasks.FollowToOffsetFromEntity(cargoTruck2, Vector3.RelativeBack * 15f, 20f, VehicleDrivingFlags.Normal);
             
             Game.LogTrivial("ConvoyBreakerCallout: Convoy AI tasks assigned. Convoy should now be moving.");
         }
