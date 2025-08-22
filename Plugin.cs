@@ -24,7 +24,7 @@ namespace ConvoyBreakerCallout
                 Game.LogTrivial("===========================================");
                 
                 // If the player is already on duty, register immediately
-                if (Functions.IsPlayerOnDuty())
+                if (LspdfrCompat.IsPlayerOnDuty())
                 {
                     Game.LogTrivial("ConvoyBreakerCallout: Player already on duty at load; registering callout now...");
                     Functions.RegisterCallout(typeof(ConvoyBreakerCallout));
