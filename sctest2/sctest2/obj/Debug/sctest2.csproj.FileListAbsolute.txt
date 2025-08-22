@@ -1,0 +1,2 @@
+C:\Users\djjdj\source\repos\sctest2\sctest2\obj\Debug\sctest2.csproj.AssemblyReference.cache
+C:\Users\djjdj\source\repos\sctest2\sctest2\obj\Debug\sctest2.csproj.CoreCompileInputs.cache

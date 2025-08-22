@@ -1,0 +1,9 @@
+C:\Users\djjdj\source\repos\sctest2\sctest2\obj\Release\sctest2.csproj.AssemblyReference.cache
+C:\Users\djjdj\source\repos\sctest2\sctest2\obj\Release\sctest2.csproj.CoreCompileInputs.cache
+C:\Users\djjdj\source\repos\sctest2\sctest2\bin\Release\sctest2.dll
+C:\Users\djjdj\source\repos\sctest2\sctest2\bin\Release\sctest2.pdb
+C:\Users\djjdj\source\repos\sctest2\sctest2\bin\Release\LSPD First Response.dll
+C:\Users\djjdj\source\repos\sctest2\sctest2\bin\Release\RagePluginHookSDK.dll
+C:\Users\djjdj\source\repos\sctest2\sctest2\obj\Release\sctest2.csproj.Up2Date
+C:\Users\djjdj\source\repos\sctest2\sctest2\obj\Release\sctest2.dll
+C:\Users\djjdj\source\repos\sctest2\sctest2\obj\Release\sctest2.pdb
