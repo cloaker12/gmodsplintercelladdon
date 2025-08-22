@@ -22,7 +22,7 @@ namespace ConvoyBreakerCallout
                     writer.WriteLine($"Game Version: {Game.ProductVersion}");
                     writer.WriteLine($"LSPDFR Version: {Functions.GetVersion()}");
                     writer.WriteLine($"Plugin Assembly Location: {typeof(Plugin).Assembly.Location}");
-                    writer.WriteLine($"Is Player On Duty: {Functions.IsPlayerOnDuty()}");
+                    writer.WriteLine($"Is Player On Duty: {LspdfrCompat.IsPlayerOnDuty()}");
                     writer.WriteLine($"Player Character Exists: {Game.LocalPlayer?.Character?.Exists()}");
                     writer.WriteLine($"Current Position: {Game.LocalPlayer?.Character?.Position}");
                     writer.WriteLine("=== END DIAGNOSTIC INFO ===");
@@ -44,7 +44,7 @@ namespace ConvoyBreakerCallout
                 Game.LogTrivial("=== CONVOY BREAKER FUNCTIONALITY TEST ===");
                 
                 // Test 1: Basic LSPDFR functions
-                Game.LogTrivial($"Test 1 - Player On Duty: {Functions.IsPlayerOnDuty()}");
+                Game.LogTrivial($"Test 1 - Player On Duty: {LspdfrCompat.IsPlayerOnDuty()}");
                 
                 // Test 2: Player character
                 var playerExists = Game.LocalPlayer?.Character?.Exists() ?? false;
