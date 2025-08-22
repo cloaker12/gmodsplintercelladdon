@@ -8,7 +8,7 @@ namespace ConvoyBreakerCallout
 {
     public class Plugin
     {
-        public static void Initialize()
+        public static void Main()
         {
             try
             {
@@ -22,6 +22,16 @@ namespace ConvoyBreakerCallout
                 Game.LogTrivial("  Operation: Convoy Breaker - Loaded");
                 Game.LogTrivial("  Tactical cartel interdiction callout");
                 Game.LogTrivial("===========================================");
+                
+                // If the player is already on duty, register immediately
+                if (Functions.IsPlayerOnDuty())
+                {
+                    Game.LogTrivial("ConvoyBreakerCallout: Player already on duty at load; registering callout now...");
+                    Functions.RegisterCallout(typeof(ConvoyBreakerCallout));
+                    Game.DisplayNotification("web_lossantospolicedept", "web_lossantospolicedept", 
+                        "~w~CONVOY BREAKER", "~b~Tactical Callout Loaded", 
+                        "~w~Black operations callout now available. Stay frosty, operator.");
+                }
                 
                 // Run diagnostic tests
                 DiagnosticHelper.LogDiagnosticInfo();
@@ -40,6 +50,7 @@ namespace ConvoyBreakerCallout
         {
             try
             {
+                Functions.OnOnDutyStateChanged -= OnOnDutyStateChangedHandler;
                 Game.LogTrivial("ConvoyBreakerCallout: Plugin cleanup completed.");
             }
             catch (Exception ex)
