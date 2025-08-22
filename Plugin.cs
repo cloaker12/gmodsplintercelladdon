@@ -10,33 +10,70 @@ namespace ConvoyBreakerCallout
     {
         public static void Initialize()
         {
-            // Subscribe to on-duty state changes
-            Functions.OnOnDutyStateChanged += OnOnDutyStateChangedHandler;
-            
-            Game.LogTrivial("===========================================");
-            Game.LogTrivial("  CONVOY BREAKER CALLOUT v1.0");
-            Game.LogTrivial("  Operation: Convoy Breaker - Loaded");
-            Game.LogTrivial("  Tactical cartel interdiction callout");
-            Game.LogTrivial("===========================================");
+            try
+            {
+                Game.LogTrivial("ConvoyBreakerCallout: Starting plugin initialization...");
+                
+                // Subscribe to on-duty state changes
+                Functions.OnOnDutyStateChanged += OnOnDutyStateChangedHandler;
+                
+                Game.LogTrivial("===========================================");
+                Game.LogTrivial("  CONVOY BREAKER CALLOUT v1.0");
+                Game.LogTrivial("  Operation: Convoy Breaker - Loaded");
+                Game.LogTrivial("  Tactical cartel interdiction callout");
+                Game.LogTrivial("===========================================");
+                
+                // Run diagnostic tests
+                DiagnosticHelper.LogDiagnosticInfo();
+                DiagnosticHelper.TestBasicFunctionality();
+                
+                Game.LogTrivial("ConvoyBreakerCallout: Plugin initialization completed successfully.");
+            }
+            catch (Exception ex)
+            {
+                Game.LogTrivial($"ConvoyBreakerCallout: CRITICAL ERROR during initialization - {ex.Message}");
+                Game.LogTrivial($"ConvoyBreakerCallout: Stack trace - {ex.StackTrace}");
+            }
         }
 
         public static void Finally()
         {
-            Game.LogTrivial("ConvoyBreakerCallout: Plugin cleanup completed.");
+            try
+            {
+                Game.LogTrivial("ConvoyBreakerCallout: Plugin cleanup completed.");
+            }
+            catch (Exception ex)
+            {
+                Game.LogTrivial($"ConvoyBreakerCallout: Error during plugin cleanup - {ex.Message}");
+            }
         }
 
         private static void OnOnDutyStateChangedHandler(bool onDuty)
         {
-            if (onDuty)
+            try
             {
-                // Register the callout when going on duty
-                Functions.RegisterCallout(typeof(ConvoyBreakerCallout));
-                
-                Game.DisplayNotification("web_lossantospolicedept", "web_lossantospolicedept", 
-                    "~w~CONVOY BREAKER", "~b~Tactical Callout Loaded", 
-                    "~w~Black operations callout now available. Stay frosty, operator.");
-                
-                Game.LogTrivial("ConvoyBreakerCallout: Callout registered successfully.");
+                if (onDuty)
+                {
+                    Game.LogTrivial("ConvoyBreakerCallout: Player went on duty, registering callout...");
+                    
+                    // Register the callout when going on duty
+                    Functions.RegisterCallout(typeof(ConvoyBreakerCallout));
+                    
+                    Game.DisplayNotification("web_lossantospolicedept", "web_lossantospolicedept", 
+                        "~w~CONVOY BREAKER", "~b~Tactical Callout Loaded", 
+                        "~w~Black operations callout now available. Stay frosty, operator.");
+                    
+                    Game.LogTrivial("ConvoyBreakerCallout: Callout registered successfully.");
+                }
+                else
+                {
+                    Game.LogTrivial("ConvoyBreakerCallout: Player went off duty.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Game.LogTrivial($"ConvoyBreakerCallout: ERROR in OnOnDutyStateChanged - {ex.Message}");
+                Game.LogTrivial($"ConvoyBreakerCallout: Stack trace - {ex.StackTrace}");
             }
         }
     }
