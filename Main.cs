@@ -119,6 +119,8 @@ namespace ConvoyBreakerCallout
 
         public override bool OnCalloutAccepted()
         {
+            Game.LogTrivial("ConvoyBreakerCallout: Callout accepted by player!");
+            
             calloutAccepted = true;
             missionStartTime = DateTime.Now;
             currentPhase = MissionPhase.Intercept;
@@ -132,6 +134,7 @@ namespace ConvoyBreakerCallout
             DeployGhostTeam();
             
             Game.LogTrivial("ConvoyBreakerCallout: Mission initiated - Operation Convoy Breaker");
+            Game.LogTrivial("ConvoyBreakerCallout: All setup complete. Process loop should now be running.");
             return base.OnCalloutAccepted();
         }
 
@@ -152,11 +155,16 @@ namespace ConvoyBreakerCallout
 
         private void SetupConvoy()
         {
+            Game.LogTrivial("ConvoyBreakerCallout: Setting up convoy vehicles...");
+            Game.LogTrivial($"ConvoyBreakerCallout: Convoy spawn point: {convoySpawnPoint}");
+            Game.LogTrivial($"ConvoyBreakerCallout: Convoy destination: {convoyDestination}");
+            
             // Lead SUV - Scouts
             leadSUV = new Vehicle("GRANGER2", convoySpawnPoint);
             leadSUV.IsPersistent = true;
             leadSUV.PrimaryColor = Color.Black;
             leadSUV.SecondaryColor = Color.Black;
+            Game.LogTrivial($"ConvoyBreakerCallout: Lead SUV spawned at {leadSUV.Position}");
             
             // Cargo Trucks
             cargoTruck1 = new Vehicle("MULE3", convoySpawnPoint + Vector3.RelativeBack * 15f);
@@ -186,6 +194,8 @@ namespace ConvoyBreakerCallout
             convoyBlip.Color = Color.Red;
             convoyBlip.Name = "Cartel Convoy";
             convoyBlip.EnableRoute(Color.Red);
+            
+            Game.LogTrivial("ConvoyBreakerCallout: Convoy setup complete. All vehicles spawned and configured.");
         }
 
         private void PopulateConvoyWithCartel()
@@ -236,14 +246,18 @@ namespace ConvoyBreakerCallout
 
         private void SetupConvoyAI()
         {
-            // Lead vehicle drives to destination
-            var leadTask = leadSUV.Driver.Tasks.DriveToPosition(convoyDestination, 25f, VehicleDrivingFlags.Normal);
-            leadTask.WaitForCompletion(1000);
+            Game.LogTrivial("ConvoyBreakerCallout: Setting up convoy AI and movement tasks...");
             
-            // Other vehicles follow in formation
-            cargoTruck1.Driver.Tasks.FollowNavigationMeshToPosition(convoyDestination, 0f, 20f);
-            cargoTruck2.Driver.Tasks.FollowNavigationMeshToPosition(convoyDestination, 0f, 20f);
-            rearSUV.Driver.Tasks.FollowNavigationMeshToPosition(convoyDestination, 0f, 20f);
+            // Lead vehicle drives to destination
+            leadSUV.Driver.Tasks.DriveToPosition(convoyDestination, 25f, VehicleDrivingFlags.Normal);
+            Game.LogTrivial($"ConvoyBreakerCallout: Lead SUV driving to destination: {convoyDestination}");
+            
+            // Other vehicles follow the lead vehicle in formation
+            cargoTruck1.Driver.Tasks.FollowToOffsetFromEntity(leadSUV, Vector3.RelativeBack * 15f, 20f);
+            cargoTruck2.Driver.Tasks.FollowToOffsetFromEntity(cargoTruck1, Vector3.RelativeBack * 15f, 20f);
+            rearSUV.Driver.Tasks.FollowToOffsetFromEntity(cargoTruck2, Vector3.RelativeBack * 15f, 20f);
+            
+            Game.LogTrivial("ConvoyBreakerCallout: Convoy AI tasks assigned. Convoy should now be moving.");
         }
 
         private void SetupAmbushPoint()
@@ -393,6 +407,20 @@ namespace ConvoyBreakerCallout
 
         private void ProcessInterceptPhase()
         {
+            // Debug: Log convoy position every few seconds
+            if ((DateTime.Now - lastRadioChatter).TotalSeconds > 10)
+            {
+                if (leadSUV.Exists())
+                {
+                    Game.LogTrivial($"ConvoyBreakerCallout: Lead SUV position: {leadSUV.Position}, Distance to ambush: {Vector3.Distance(leadSUV.Position, ambushPoint):F1}m");
+                }
+                else
+                {
+                    Game.LogTrivial("ConvoyBreakerCallout: WARNING - Lead SUV no longer exists!");
+                }
+                lastRadioChatter = DateTime.Now;
+            }
+            
             // Check if convoy is near ambush point
             if (leadSUV.Exists() && Vector3.Distance(leadSUV.Position, ambushPoint) < 100f)
             {
