@@ -192,7 +192,7 @@ namespace ConvoyBreakerCallout
         {
             // Lead SUV - 2 scouts with rifles
             var leadDriver = leadSUV.CreateRandomDriver();
-            var leadGunner = leadSUV.CreateRandomPedOnSeat(VehicleSeat.Passenger);
+            var leadGunner = leadSUV.CreateRandomPedOnSeat(0); // 0 = Passenger seat
             
             leadDriver.Inventory.GiveNewWeapon("WEAPON_ASSAULTRIFLE", 200, true);
             leadGunner.Inventory.GiveNewWeapon("WEAPON_CARBINERIFLE", 200, true);
@@ -210,8 +210,8 @@ namespace ConvoyBreakerCallout
             
             // Rear SUV - heavily armed escort
             var rearDriver = rearSUV.CreateRandomDriver();
-            var rearGunner = rearSUV.CreateRandomPedOnSeat(VehicleSeat.Passenger);
-            var rearEnforcer = rearSUV.CreateRandomPedOnSeat(VehicleSeat.LeftRear);
+            var rearGunner = rearSUV.CreateRandomPedOnSeat(0); // 0 = Passenger seat
+            var rearEnforcer = rearSUV.CreateRandomPedOnSeat(1); // 1 = Left rear seat
             
             rearDriver.Inventory.GiveNewWeapon("WEAPON_ASSAULTRIFLE", 200, true);
             rearGunner.Inventory.GiveNewWeapon("WEAPON_MG", 300, true);  // Light machine gun
@@ -248,7 +248,7 @@ namespace ConvoyBreakerCallout
             ambushBlip = new Blip(ambushPoint);
             ambushBlip.Color = Color.Yellow;
             ambushBlip.Name = "Ambush Point";
-            ambushBlip.Sprite = BlipSprite.Crosshair;
+            ambushBlip.Sprite = BlipSprite.Enemy;
             
             Game.DisplayNotification("~y~Ambush point marked. ~w~Position yourself for convoy interception.");
         }
@@ -270,7 +270,7 @@ namespace ConvoyBreakerCallout
                 heliPilot.BlockPermanentEvents = true;
                 
                 // Hover at insertion point
-                annihilator2.Driver.Tasks.ClearAll();
+                annihilator2.Driver.Tasks.Clear();
                 
                 GameFiber.Sleep(3000);
                 
@@ -298,7 +298,7 @@ namespace ConvoyBreakerCallout
             
             for (int i = 0; i < 4; i++)
             {
-                var operative = new Ped("S_M_Y_BLACKOPS_01", insertionPoints[i]);
+                var operative = new Ped("S_M_Y_BLACKOPS_01", insertionPoints[i], 0f);
                 operative.IsPersistent = true;
                 operative.BlockPermanentEvents = true;
                 operative.RelationshipGroup = "COP";
@@ -313,10 +313,10 @@ namespace ConvoyBreakerCallout
                     ghostSniper = operative;
                     
                     // Position sniper on elevated position
-                    var nearbyBuilding = World.GetNearbyProps(operative.Position, 50f, "prop_building*").FirstOrDefault();
-                    if (nearbyBuilding != null)
+                    var nearbyProps = World.GetAllProps().Where(p => Vector3.Distance(p.Position, operative.Position) < 50f).ToArray();
+                    if (nearbyProps.Length > 0)
                     {
-                        operative.Position = nearbyBuilding.Position + Vector3.WorldUp * 10f;
+                        operative.Position = nearbyProps[0].Position + Vector3.WorldUp * 10f;
                     }
                 }
                 else
@@ -505,7 +505,7 @@ namespace ConvoyBreakerCallout
             baseBlip = new Blip(cartelBaseLocation);
             baseBlip.Color = Color.Red;
             baseBlip.Name = "Cartel Stronghold";
-            baseBlip.Sprite = BlipSprite.Gang;
+            baseBlip.Sprite = BlipSprite.Enemy;
         }
 
         private void ConvoyNeutralized()
@@ -542,7 +542,7 @@ namespace ConvoyBreakerCallout
                 // Spawn base guards
                 for (int i = 0; i < guardPositions.Length; i++)
                 {
-                    var guard = new Ped("G_M_Y_MexGang_01", guardPositions[i]);
+                    var guard = new Ped("G_M_Y_MexGang_01", guardPositions[i], 0f);
                     guard.IsPersistent = true;
                     guard.BlockPermanentEvents = true;
                     guard.RelationshipGroup = "HATES_PLAYER";
@@ -558,12 +558,12 @@ namespace ConvoyBreakerCallout
                         guard.Inventory.GiveNewWeapon("WEAPON_ASSAULTRIFLE", 200, true);
                     }
                     
-                    guard.Tasks.GuardCurrentPosition();
+                    guard.Tasks.StandStill(-1);
                     baseGuards.Add(guard);
                 }
                 
                 // Spawn cartel leader in safehouse
-                cartelLeader = new Ped("G_M_Y_MexBoss_01", cartelBaseLocation);
+                cartelLeader = new Ped("G_M_Y_MexBoss_01", cartelBaseLocation, 0f);
                 cartelLeader.IsPersistent = true;
                 cartelLeader.BlockPermanentEvents = true;
                 cartelLeader.RelationshipGroup = "HATES_PLAYER";
@@ -587,7 +587,7 @@ namespace ConvoyBreakerCallout
             PlayRadioChatter("Ghost Lead", "Lights out! Switch to night vision, we own the dark now.");
             
             // Create blackout effect
-            World.Weather = Weather.ExtraSunny; // Ensure it's not already dark
+            World.Weather = Rage.Weather.ExtraSunny; // Ensure it's not already dark
             NativeFunction.Natives.SET_ARTIFICIAL_LIGHTS_STATE(false);
             
             GameFiber.StartNew(() =>
@@ -619,7 +619,7 @@ namespace ConvoyBreakerCallout
                     
                     for (int j = 0; j < 4; j++)
                     {
-                        var reinforcement = reinforcementVehicle.CreateRandomPedOnSeat((VehicleSeat)j);
+                        var reinforcement = reinforcementVehicle.CreateRandomPedOnSeat(j);
                         reinforcement.IsPersistent = true;
                         reinforcement.BlockPermanentEvents = true;
                         reinforcement.RelationshipGroup = "HATES_PLAYER";
@@ -758,7 +758,7 @@ namespace ConvoyBreakerCallout
 
         private bool IsPlayerDetected()
         {
-            return baseGuards.Any(g => g.Exists() && g.HasSpottedPed(Game.LocalPlayer.Character));
+            return baseGuards.Any(g => g.Exists() && g.IsInCombat);
         }
 
         private void EngageGhostTeam()
