@@ -192,7 +192,8 @@ namespace ConvoyBreakerCallout
         {
             // Lead SUV - 2 scouts with rifles
             var leadDriver = leadSUV.CreateRandomDriver();
-            var leadGunner = leadSUV.CreateRandomPedOnSeat(0); // 0 = Passenger seat
+            var leadGunner = new Ped("G_M_Y_MexGang_01", leadSUV.Position, 0f);
+            leadGunner.WarpIntoVehicle(leadSUV, 0); // 0 = Passenger seat
             
             leadDriver.Inventory.GiveNewWeapon("WEAPON_ASSAULTRIFLE", 200, true);
             leadGunner.Inventory.GiveNewWeapon("WEAPON_CARBINERIFLE", 200, true);
@@ -210,8 +211,10 @@ namespace ConvoyBreakerCallout
             
             // Rear SUV - heavily armed escort
             var rearDriver = rearSUV.CreateRandomDriver();
-            var rearGunner = rearSUV.CreateRandomPedOnSeat(0); // 0 = Passenger seat
-            var rearEnforcer = rearSUV.CreateRandomPedOnSeat(1); // 1 = Left rear seat
+            var rearGunner = new Ped("G_M_Y_MexGang_01", rearSUV.Position, 0f);
+            rearGunner.WarpIntoVehicle(rearSUV, 0); // 0 = Passenger seat
+            var rearEnforcer = new Ped("G_M_Y_MexGang_01", rearSUV.Position, 0f);
+            rearEnforcer.WarpIntoVehicle(rearSUV, 1); // 1 = Left rear seat
             
             rearDriver.Inventory.GiveNewWeapon("WEAPON_ASSAULTRIFLE", 200, true);
             rearGunner.Inventory.GiveNewWeapon("WEAPON_MG", 300, true);  // Light machine gun
@@ -313,7 +316,8 @@ namespace ConvoyBreakerCallout
                     ghostSniper = operative;
                     
                     // Position sniper on elevated position
-                    var nearbyProps = World.GetAllProps().Where(p => Vector3.Distance(p.Position, operative.Position) < 50f).ToArray();
+                    var nearbyObjects = World.GetAllObjects();
+                    var nearbyProps = nearbyObjects.Where(o => o.Exists() && Vector3.Distance(o.Position, operative.Position) < 50f).ToArray();
                     if (nearbyProps.Length > 0)
                     {
                         operative.Position = nearbyProps[0].Position + Vector3.WorldUp * 10f;
@@ -587,7 +591,7 @@ namespace ConvoyBreakerCallout
             PlayRadioChatter("Ghost Lead", "Lights out! Switch to night vision, we own the dark now.");
             
             // Create blackout effect
-            World.Weather = Rage.Weather.ExtraSunny; // Ensure it's not already dark
+            World.Weather = Weather.ExtraSunny; // Ensure it's not already dark
             NativeFunction.Natives.SET_ARTIFICIAL_LIGHTS_STATE(false);
             
             GameFiber.StartNew(() =>
@@ -619,7 +623,8 @@ namespace ConvoyBreakerCallout
                     
                     for (int j = 0; j < 4; j++)
                     {
-                        var reinforcement = reinforcementVehicle.CreateRandomPedOnSeat(j);
+                        var reinforcement = new Ped("G_M_Y_MexGang_01", reinforcementVehicle.Position, 0f);
+                        reinforcement.WarpIntoVehicle(reinforcementVehicle, j);
                         reinforcement.IsPersistent = true;
                         reinforcement.BlockPermanentEvents = true;
                         reinforcement.RelationshipGroup = "HATES_PLAYER";
