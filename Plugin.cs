@@ -6,9 +6,9 @@ using Rage;
 
 namespace ConvoyBreakerCallout
 {
-    public class Plugin : Rage.Plugin
+    public class Plugin
     {
-        public override void Initialize()
+        public static void Initialize()
         {
             // Subscribe to on-duty state changes
             Functions.OnOnDutyStateChanged += OnOnDutyStateChangedHandler;
@@ -20,7 +20,7 @@ namespace ConvoyBreakerCallout
             Game.LogTrivial("===========================================");
         }
 
-        public override void Finally()
+        public static void Finally()
         {
             Game.LogTrivial("ConvoyBreakerCallout: Plugin cleanup completed.");
         }
