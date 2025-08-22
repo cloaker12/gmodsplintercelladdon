@@ -121,7 +121,7 @@ namespace ConvoyBreakerCallout
                 Functions.PlayScannerAudioUsingPosition("ATTENTION_ALL_UNITS WE_HAVE CRIME_GANG_RELATED IN_OR_ON_POSITION", ambushPoint);
                 
                 Game.LogTrivial("ConvoyBreakerCallout: OnBeforeCalloutDisplayed - Setup completed successfully");
-                return base.OnBeforeCalloutDisplayed();
+                return true;
             }
             catch (Exception ex)
             {
