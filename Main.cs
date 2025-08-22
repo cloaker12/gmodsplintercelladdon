@@ -591,7 +591,7 @@ namespace ConvoyBreakerCallout
             PlayRadioChatter("Ghost Lead", "Lights out! Switch to night vision, we own the dark now.");
             
             // Create blackout effect
-            Game.Weather = "EXTRASUNNY"; // Ensure it's not already dark
+            NativeFunction.Natives.SET_WEATHER_TYPE_NOW("EXTRASUNNY"); // Ensure it's not already dark
             NativeFunction.Natives.SET_ARTIFICIAL_LIGHTS_STATE(false);
             
             GameFiber.StartNew(() =>
