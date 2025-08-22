@@ -316,8 +316,8 @@ namespace ConvoyBreakerCallout
                     ghostSniper = operative;
                     
                     // Position sniper on elevated position
-                    var nearbyObjects = World.GetAllObjects();
-                    var nearbyProps = nearbyObjects.Where(o => o.Exists() && Vector3.Distance(o.Position, operative.Position) < 50f).ToArray();
+                    var allEntities = World.GetAllEntities();
+                    var nearbyProps = allEntities.OfType<Rage.Object>().Where(o => o.Exists() && Vector3.Distance(o.Position, operative.Position) < 50f).ToArray();
                     if (nearbyProps.Length > 0)
                     {
                         operative.Position = nearbyProps[0].Position + Vector3.WorldUp * 10f;
@@ -591,7 +591,7 @@ namespace ConvoyBreakerCallout
             PlayRadioChatter("Ghost Lead", "Lights out! Switch to night vision, we own the dark now.");
             
             // Create blackout effect
-            World.Weather = Weather.ExtraSunny; // Ensure it's not already dark
+            Game.Weather = Weather.Clear; // Ensure it's not already dark
             NativeFunction.Natives.SET_ARTIFICIAL_LIGHTS_STATE(false);
             
             GameFiber.StartNew(() =>
