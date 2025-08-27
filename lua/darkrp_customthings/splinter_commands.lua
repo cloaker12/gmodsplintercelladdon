@@ -1,35 +1,40 @@
 -- ============================================================================
 -- Splinter Cell Commands and Functionality
 -- ============================================================================
--- Chat commands and admin commands for Splinter Cell addon
+-- Chat commands and admin commands for Splinter Cell addon (ABILITY SYSTEM)
 -- ============================================================================
 
 -- ============================================================================
 -- CHAT COMMANDS
 -- ============================================================================
 
+-- Helper function to check if player has Splinter Cell abilities
+local function HasSplinterCellAbilities(ply)
+    if not IsValid(ply) then return false end
+    local team = ply:Team()
+    return team == TEAM_SPLINTERCELL or team == TEAM_SPLINTERCOMMANDER
+end
+
 -- Add chat command for vision toggle (backup method)
 hook.Add("PlayerSay", "SplinterCellCommands", function(ply, text, teamChat)
     if string.lower(text) == "/togglevision" then
-        local weapon = ply:GetActiveWeapon()
-        if IsValid(weapon) and weapon:GetClass() == "splinter_cell_vision" then
-            if weapon.ToggleVision then
-                weapon:ToggleVision()
-                ply:ChatPrint("Vision mode toggle requested!")
-            end
+        if HasSplinterCellAbilities(ply) then
+            -- Send toggle request through the ability system
+            net.Start("SC_AbilityToggle")
+            net.Send(ply)
+            ply:ChatPrint("Vision mode toggle requested!")
         else
-            ply:ChatPrint("You need to have Splinter Cell Vision Goggles equipped!")
+            ply:ChatPrint("You need to be a Splinter Cell operative to use vision abilities!")
         end
         return ""
     elseif string.lower(text) == "/cyclevision" then
-        local weapon = ply:GetActiveWeapon()
-        if IsValid(weapon) and weapon:GetClass() == "splinter_cell_vision" then
-            if weapon.CycleMode then
-                weapon:CycleMode()
-                ply:ChatPrint("Vision mode cycle requested!")
-            end
+        if HasSplinterCellAbilities(ply) then
+            -- Send mode change request through the ability system
+            net.Start("SC_AbilityModeChange")
+            net.Send(ply)
+            ply:ChatPrint("Vision mode cycle requested!")
         else
-            ply:ChatPrint("You need to have Splinter Cell Vision Goggles equipped!")
+            ply:ChatPrint("You need to be a Splinter Cell operative to use vision abilities!")
         end
         return ""
     end
@@ -39,8 +44,8 @@ end)
 -- ADMIN COMMANDS
 -- ============================================================================
 
--- Admin command to give vision goggles
-concommand.Add("rp_givevision", function(ply, cmd, args)
+-- Admin command to force a player to Splinter Cell job (which gives vision abilities)
+concommand.Add("rp_makesplinter", function(ply, cmd, args)
     if not ply:IsAdmin() then 
         ply:ChatPrint("You don't have permission to use this command!")
         return 
@@ -55,10 +60,10 @@ concommand.Add("rp_givevision", function(ply, cmd, args)
         end
     end
     
-    target:Give("splinter_cell_vision")
-    ply:ChatPrint("Gave Splinter Cell Vision Goggles to " .. target:Name())
+    target:changeTeam(TEAM_SPLINTERCELL, true)
+    ply:ChatPrint("Made " .. target:Name() .. " a Splinter Cell operative (with vision abilities)")
     if target != ply then
-        target:ChatPrint("You received Splinter Cell Vision Goggles from " .. ply:Name())
+        target:ChatPrint("You have been made a Splinter Cell operative by " .. ply:Name() .. "! You now have vision abilities.")
     end
 end)
 
@@ -67,12 +72,16 @@ concommand.Add("test_splinter", function(ply)
     if IsValid(ply) then
         ply:ChatPrint("=== Splinter Cell Addon Status ===")
         ply:ChatPrint("DarkRP Loaded: " .. tostring(DarkRP ~= nil))
-        ply:ChatPrint("Weapon Exists: " .. tostring(weapons.Get("splinter_cell_vision") ~= nil))
+        ply:ChatPrint("Has Abilities: " .. tostring(HasSplinterCellAbilities(ply)))
+        ply:ChatPrint("Current Team: " .. team.GetName(ply:Team()))
+        ply:ChatPrint("Splinter Teams: TEAM_SPLINTERCELL=" .. tostring(TEAM_SPLINTERCELL) .. ", TEAM_SPLINTERCOMMANDER=" .. tostring(TEAM_SPLINTERCOMMANDER))
         
-        -- Try giving the weapon directly
-        if ply:IsAdmin() then
-            ply:Give("splinter_cell_vision")
-            ply:ChatPrint("Weapon given directly (admin only)")
+        -- Test ability system
+        if HasSplinterCellAbilities(ply) then
+            ply:ChatPrint("✓ You have access to Splinter Cell vision abilities!")
+            ply:ChatPrint("Press N to toggle vision, T to cycle modes")
+        else
+            ply:ChatPrint("✗ You need to be a Splinter Cell operative to use abilities")
         end
     end
 end)
@@ -81,57 +90,15 @@ end)
 -- LOADING CONFIRMATION
 -- ============================================================================
 
--- DarkRP Integration Hooks
+-- DarkRP Integration Hooks for Ability System
 hook.Add("playerBoughtCustomJob", "SplinterCellJobHandler", function(ply, jobTable)
-    if jobTable.weapons then
-        for _, weapon in pairs(jobTable.weapons) do
-            if weapon == "splinter_cell_vision" then
-                timer.Simple(0.5, function()
-                    if IsValid(ply) then
-                        ply:Give("splinter_cell_vision")
-                        ply:ChatPrint("You have received advanced vision technology!")
-                        ply:ChatPrint("Press N to toggle vision modes, T to cycle between modes")
-                    end
-                end)
-                break
-            end
-        end
-    end
-end)
-
--- Handle job changes/disconnects to clean up vision state
-hook.Add("OnPlayerChangedTeam", "SplinterCellTeamChange", function(ply, before, after)
-    -- Check if player no longer has access to splinter cell vision
-    local oldJob = RPExtraTeams[before]
-    local newJob = RPExtraTeams[after]
-    
-    local hadAccess = false
-    local hasAccess = false
-    
-    if oldJob and oldJob.weapons then
-        for _, weapon in pairs(oldJob.weapons) do
-            if weapon == "splinter_cell_vision" then
-                hadAccess = true
-                break
-            end
-        end
-    end
-    
-    if newJob and newJob.weapons then
-        for _, weapon in pairs(newJob.weapons) do
-            if weapon == "splinter_cell_vision" then
-                hasAccess = true
-                break
-            end
-        end
-    end
-    
-    -- Remove weapon if no longer has access
-    if hadAccess and not hasAccess then
-        timer.Simple(0.1, function()
-            if IsValid(ply) then
-                ply:StripWeapon("splinter_cell_vision")
-                ply:ChatPrint("Vision technology access revoked.")
+    -- Check if this is a Splinter Cell job
+    if jobTable.command == "splintercell" or jobTable.command == "splintercommander" then
+        timer.Simple(0.5, function()
+            if IsValid(ply) and HasSplinterCellAbilities(ply) then
+                ply:ChatPrint("You have received advanced vision technology!")
+                ply:ChatPrint("Press N to toggle vision modes, T to cycle between modes")
+                ply:ChatPrint("Vision abilities are now ACTIVE as a job ability!")
             end
         end)
     end
@@ -140,7 +107,8 @@ end)
 hook.Add("InitPostEntity", "SplinterCellCommandsLoaded", function()
     print("[DarkRP] Splinter Cell commands loaded successfully!")
     print("[DarkRP] - Chat Commands: /togglevision, /cyclevision")
-    print("[DarkRP] - Admin Command: rp_givevision [player]")
-    print("[DarkRP] - Test Command: test_splinter (for admins)")
-    print("[DarkRP] - Job integration enabled for automatic weapon distribution")
+    print("[DarkRP] - Admin Command: rp_makesplinter [player]")
+    print("[DarkRP] - Test Command: test_splinter")
+    print("[DarkRP] - Job integration enabled for automatic ABILITY distribution")
+    print("[DarkRP] - Vision system converted from SWEP to JOB ABILITIES")
 end)

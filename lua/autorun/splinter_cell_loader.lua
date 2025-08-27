@@ -1,17 +1,23 @@
 -- ============================================================================
--- Splinter Cell Vision Goggles - Autorun Loader
+-- Splinter Cell Abilities System - Autorun Loader
 -- ============================================================================
--- This file ensures proper loading order for DarkRP integration
+-- This file ensures proper loading order for DarkRP integration (ABILITY SYSTEM)
 -- ============================================================================
 
 -- Print loading message
-print("[AUTORUN] Loading Splinter Cell Vision Goggles...")
+print("[AUTORUN] Loading Splinter Cell Abilities System...")
 
--- Check if weapon file exists
-if file.Exists("lua/weapons/splinter_cell_vision.lua", "GAME") then
-    print("[AUTORUN] Weapon file found: splinter_cell_vision.lua")
+-- Check if ability system file exists
+if file.Exists("lua/darkrp_customthings/splinter_abilities.lua", "GAME") then
+    print("[AUTORUN] Ability system found: splinter_abilities.lua")
 else
-    print("[ERROR] Weapon file not found: weapons/splinter_cell_vision.lua")
+    print("[ERROR] Ability system not found: darkrp_customthings/splinter_abilities.lua")
+end
+
+-- Load ability system files
+if file.Exists("lua/darkrp_customthings/splinter_abilities.lua", "GAME") then
+    include("darkrp_customthings/splinter_abilities.lua")
+    print("[AUTORUN] Splinter Cell abilities loaded")
 end
 
 -- Only handle DarkRP-specific loading on server
@@ -30,15 +36,16 @@ if SERVER then
         timer.Simple(2, function()
             print("[AUTORUN] === Splinter Cell Addon Status ===")
             print("[AUTORUN] DarkRP Loaded: " .. tostring(DarkRP ~= nil))
-            print("[AUTORUN] Weapon Available: " .. tostring(weapons.Get("splinter_cell_vision") ~= nil))
+            print("[AUTORUN] Ability System: ACTIVE (No SWEP required)")
             if DarkRP then
-                print("[AUTORUN] Jobs should be available in F4 menu under 'Special Forces'")
+                print("[AUTORUN] Jobs available in F4 menu under 'Special Forces'")
+                print("[AUTORUN] Vision abilities automatically granted to Splinter Cell operatives")
             else
-                print("[AUTORUN] DarkRP not detected - addon will work as standalone weapon")
+                print("[AUTORUN] DarkRP not detected - ability system requires DarkRP")
             end
-            print("[AUTORUN] Splinter Cell Vision Goggles fully loaded!")
+            print("[AUTORUN] Splinter Cell Abilities System fully loaded!")
         end)
     end)
 end
 
-print("[AUTORUN] Splinter Cell autorun initialization complete!")
+print("[AUTORUN] Splinter Cell ability system initialization complete!")
