@@ -391,12 +391,15 @@ function SWEP:TriggerSonarPulse()
             self.Owner:EmitSound("buttons/button15.wav", 75, 100, self.Settings.soundVolume)
         end
 
-        -- Find entities within sonar range
+        -- Find entities within sonar range (enhanced for better detection)
         local entities = ents.FindInSphere(self.Owner:GetPos(), self.Settings.sonarRange)
+        local detectionCount = 0
+        
         for _, ent in pairs(entities) do
             if self:IsSonarDetectable(ent) then
                 -- Store detection time
                 self.SonarDetections[ent] = CurTime()
+                detectionCount = detectionCount + 1
 
                 -- Send sonar detection to client
                 net.Start("SplinterCell_Sonar_Detection")
@@ -405,6 +408,13 @@ function SWEP:TriggerSonarPulse()
                 net.WriteFloat(CurTime())
                 net.Send(self.Owner)
             end
+        end
+        
+        -- Debug feedback to owner
+        if detectionCount > 0 then
+            self.Owner:ChatPrint("Sonar detected " .. detectionCount .. " entities")
+        else
+            self.Owner:ChatPrint("No sonar detections in range")
         end
     end
 end
@@ -422,10 +432,10 @@ function SWEP:IsSonarDetectable(ent)
     elseif ent:IsVehicle() then
         return true -- Detect vehicles
     elseif ent:GetClass():find("prop_physics") then
-        -- Detect physics props of reasonable size
+        -- Detect physics props of reasonable size (lowered threshold)
         local mins, maxs = ent:GetCollisionBounds()
         local size = (maxs - mins):Length()
-        return size > 30 -- Lower threshold for more detections
+        return size > 20 -- Lowered threshold for more detections
     elseif ent:GetClass():find("func_door") or ent:GetClass():find("prop_door") then
         return true -- Detect doors
     elseif ent:GetClass():find("npc_") then
@@ -436,6 +446,14 @@ function SWEP:IsSonarDetectable(ent)
         return true -- Detect SENTs (scripted entities)
     elseif ent:GetClass():find("grenade") or ent:GetClass():find("explosive") then
         return true -- Detect explosives
+    elseif ent:GetClass():find("item_") then
+        return true -- Detect items
+    elseif ent:GetClass():find("prop_") then
+        return true -- Detect most props
+    elseif ent:GetClass():find("func_") then
+        return true -- Detect functional entities
+    elseif ent:GetMoveType() == MOVETYPE_VPHYSICS then
+        return true -- Detect physics entities
     end
 
     return false
@@ -453,6 +471,20 @@ function SWEP:Think()
 
     -- Update sonar system if active
     self:UpdateSonar()
+    
+    -- Ensure proper networking synchronization
+    if SERVER and self.GogglesActive then
+        -- Send periodic updates to ensure client stays synchronized
+        local currentTime = CurTime()
+        if not self.LastNetworkUpdate or currentTime - self.LastNetworkUpdate > 1.0 then
+            self.LastNetworkUpdate = currentTime
+            
+            net.Start("SplinterCell_Goggles_State")
+            net.WriteBool(self.GogglesActive)
+            net.WriteInt(self.CurrentMode, 8)
+            net.Send(self.Owner)
+        end
+    end
 
     -- Handle key input for toggling
     if CLIENT then
@@ -466,19 +498,19 @@ end
 
 function SWEP:HandleKeyInput()
     -- Check for N key toggle
-    if self.ToggleKey and input.IsKeyDown(self.ToggleKey) and not self.KeyPressed then
+    if input.IsKeyDown(KEY_N) and not self.KeyPressed then
         if self.GogglesActive then
             self:DeactivateGoggles()
         else
             self:ActivateGoggles()
         end
         self.KeyPressed = true
-    elseif self.CycleKey and input.IsKeyDown(self.CycleKey) and not self.CycleKeyPressed then
+    elseif input.IsKeyDown(KEY_T) and not self.CycleKeyPressed then
         if self.GogglesActive then
             self:CycleVisionMode()
         end
         self.CycleKeyPressed = true
-    elseif not input.IsKeyDown(self.ToggleKey or KEY_N) and not input.IsKeyDown(self.CycleKey or KEY_T) then
+    elseif not input.IsKeyDown(KEY_N) and not input.IsKeyDown(KEY_T) then
         self.KeyPressed = false
         self.CycleKeyPressed = false
     end
@@ -578,4 +610,63 @@ function SWEP:UpdateSetting(key, value)
             net.Send(self.Owner)
         end
     end
+end
+
+-- ============================================================================
+-- DEBUGGING AND CONSOLE COMMANDS
+-- ============================================================================
+
+if SERVER then
+    -- Server-side debug commands
+    concommand.Add("splintercell_debug_server", function(ply, cmd, args)
+        local weapon = ply:GetActiveWeapon()
+        if IsValid(weapon) and weapon:GetClass() == "splintercell_nvg" then
+            print("=== Splinter Cell Server Debug ===")
+            print("Goggles Active:", weapon.GogglesActive)
+            print("Current Mode:", weapon.CurrentMode)
+            print("Energy:", weapon.Energy)
+            print("Sonar Detections:", table.Count(weapon.SonarDetections))
+            
+            ply:ChatPrint("Server debug info printed to console")
+        else
+            ply:ChatPrint("Splinter Cell Goggles not equipped!")
+        end
+    end)
+
+    -- Force sonar pulse (server-side)
+    concommand.Add("splintercell_force_pulse", function(ply, cmd, args)
+        local weapon = ply:GetActiveWeapon()
+        if IsValid(weapon) and weapon:GetClass() == "splintercell_nvg" then
+            weapon:TriggerSonarPulse()
+            ply:ChatPrint("Sonar pulse triggered!")
+        else
+            ply:ChatPrint("Splinter Cell Goggles not equipped!")
+        end
+    end)
+
+    -- Test entity detection (server-side)
+    concommand.Add("splintercell_test_detection", function(ply, cmd, args)
+        local weapon = ply:GetActiveWeapon()
+        if IsValid(weapon) and weapon:GetClass() == "splintercell_nvg" then
+            local entities = ents.FindInSphere(ply:GetPos(), 500)
+            local thermalCount = 0
+            local sonarCount = 0
+            
+            for _, ent in pairs(entities) do
+                if weapon:IsThermalDetectable(ent) then
+                    thermalCount = thermalCount + 1
+                end
+                if weapon:IsSonarDetectable(ent) then
+                    sonarCount = sonarCount + 1
+                end
+            end
+            
+            ply:ChatPrint("Detection Test Results:")
+            ply:ChatPrint("Thermal detectable: " .. thermalCount)
+            ply:ChatPrint("Sonar detectable: " .. sonarCount)
+            ply:ChatPrint("Total entities in range: " .. #entities)
+        else
+            ply:ChatPrint("Splinter Cell Goggles not equipped!")
+        end
+    end)
 end
