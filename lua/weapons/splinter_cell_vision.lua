@@ -1,12 +1,17 @@
 AddCSLuaFile()
 
 SWEP.PrintName = "Splinter Cell Vision Goggles"
-SWEP.Author = "Your Name"
-SWEP.Instructions = "Press N to toggle vision, T to cycle modes"
-SWEP.Category = "Splinter Cell"
+SWEP.Author = "DarkRP Enhanced"
+SWEP.Instructions = "Press N to toggle vision, T to cycle modes | DarkRP Compatible"
+SWEP.Category = "DarkRP Special"
 
 SWEP.Spawnable = true
 SWEP.AdminOnly = false
+SWEP.AutoSwitchTo = false
+SWEP.AutoSwitchFrom = false
+
+-- DarkRP Integration
+SWEP.IsDarkRPWeapon = true
 
 SWEP.Primary.ClipSize = -1
 SWEP.Primary.DefaultClip = -1
@@ -19,8 +24,6 @@ SWEP.Secondary.Automatic = false
 SWEP.Secondary.Ammo = "none"
 
 SWEP.Weight = 5
-SWEP.AutoSwitchTo = false
-SWEP.AutoSwitchFrom = false
 
 SWEP.Slot = 1
 SWEP.SlotPos = 1
