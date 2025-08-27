@@ -19,78 +19,12 @@ timer.Simple(1, function()
 end)
 
 -- ============================================================================
--- ENTITIES
+-- ENTITIES & SHIPMENTS - DISABLED
 -- ============================================================================
-
--- Get available teams (fallback to TEAM_CITIZEN if others don't exist)
-local allowedTeams = {}
-if TEAM_CITIZEN then table.insert(allowedTeams, TEAM_CITIZEN) end
-if TEAM_POLICE then table.insert(allowedTeams, TEAM_POLICE) end
-if TEAM_GANG then table.insert(allowedTeams, TEAM_GANG) end
-if TEAM_MOB then table.insert(allowedTeams, TEAM_MOB) end
-
--- Ensure we have at least one team
-if #allowedTeams == 0 then
-    allowedTeams = {TEAM_CITIZEN}
-end
-
--- Multiple attempts to create entity with different timing
-local function CreateSplinterEntity()
-    if DarkRP and DarkRP.createEntity then
-        local success, err = pcall(function()
-            -- Create the entity for the F4 menu
-            DarkRP.createEntity("Splinter Cell Vision Goggles", {
-                ent = "splinter_cell_vision",
-                model = "models/weapons/w_pistol.mdl", -- Using default pistol model as placeholder
-                price = 7500,
-                max = 1,
-                cmd = "buysplintervision",
-                allowed = allowedTeams
-            })
-        end)
-        
-        if success then
-            print("[DarkRP] Splinter Cell Vision Goggles entity created successfully!")
-            return true
-        else
-            print("[ERROR] Failed to create DarkRP entity: " .. tostring(err))
-            return false
-        end
-    else
-        print("[ERROR] DarkRP.createEntity not available")
-        return false
-    end
-end
-
--- Try creating immediately
-if not CreateSplinterEntity() then
-    -- Try again after 2 seconds
-    timer.Simple(2, function()
-        if not CreateSplinterEntity() then
-            -- Final attempt after 5 seconds
-            timer.Simple(3, CreateSplinterEntity)
-        end
-    end)
-end
-
--- Create a shipment for bulk purchase (also delayed)
-timer.Simple(2.5, function()
-    if DarkRP and DarkRP.createShipment then
-        DarkRP.createShipment("Splinter Cell Vision Goggles", {
-            model = "models/weapons/w_pistol.mdl",
-            entity = "splinter_cell_vision",
-            price = 67500,
-            amount = 10,
-            separate = true,
-            pricesep = 7500,
-            noship = false,
-            allowed = allowedTeams
-        })
-        print("[DarkRP] Splinter Cell Vision Goggles shipment created successfully!")
-    else
-        print("[ERROR] Could not create DarkRP shipment for Splinter Cell Vision Goggles")
-    end
-end)
+-- NOTE: Splinter Cell Vision Goggles are now JOB-EXCLUSIVE abilities only!
+-- They are NOT available for purchase through F4 menu or shipments.
+-- Only players with Splinter Cell jobs can use these advanced vision systems.
+-- ============================================================================
 
 -- ============================================================================
 -- CUSTOM JOBS
@@ -108,8 +42,9 @@ DarkRP.createJob("Splinter Cell Operative", {
     },
     description = [[You are an elite Splinter Cell operative specializing in covert operations.
     
-    EQUIPMENT:
-    - Advanced Vision Goggles with multiple modes
+    *** EXCLUSIVE JOB-ONLY EQUIPMENT ***
+    - Advanced Vision Goggles with multiple modes (NOT PURCHASABLE)
+    - This cutting-edge technology is ONLY available to trained operatives
     - Night Vision, Thermal Vision, Sonar Vision, and more
     
     CONTROLS:
@@ -124,7 +59,8 @@ DarkRP.createJob("Splinter Cell Operative", {
     - Motion Detection: Highlight moving targets
     - EMP Vision: Detect electronic devices
     
-    Your mission is to gather intelligence and complete objectives using stealth and advanced technology.]],
+    Your mission is to gather intelligence and complete objectives using stealth and advanced technology.
+    Remember: Your vision technology is classified and cannot be obtained by civilians!]],
     weapons = {"splinter_cell_vision", "weapon_pistol"},
     command = "splintercell",
     max = 3,
@@ -151,17 +87,20 @@ DarkRP.createJob("Splinter Cell Commander", {
     },
     description = [[You are a Splinter Cell Commander leading covert operations.
     
-    ENHANCED EQUIPMENT:
-    - Military-grade Vision Goggles
+    *** EXCLUSIVE MILITARY-GRADE EQUIPMENT ***
+    - Military-grade Vision Goggles (CLASSIFIED TECHNOLOGY)
     - Advanced tactical weapons
     - Leadership privileges
+    - This technology is RESTRICTED to command personnel only
     
     SPECIAL ABILITIES:
     - Can coordinate team operations
     - Access to restricted areas
     - Enhanced health and armor
+    - Command-level vision system access
     
-    Lead your team to victory using superior technology and tactical expertise.]],
+    Lead your team to victory using superior technology and tactical expertise.
+    Your equipment represents the pinnacle of military technology - unavailable to civilians!]],
     weapons = {"splinter_cell_vision", "weapon_pistol", "stunstick"},
     command = "splintercommander",
     max = 1,
@@ -263,10 +202,10 @@ end)
 
 hook.Add("InitPostEntity", "SplinterCellConfigLoaded", function()
     print("[DarkRP] Splinter Cell Vision Goggles configuration loaded successfully!")
-    print("[DarkRP] - Weapon: splinter_cell_vision")
+    print("[DarkRP] - Weapon: splinter_cell_vision (JOB-EXCLUSIVE ONLY)")
     print("[DarkRP] - Jobs: Splinter Cell Operative, Splinter Cell Commander")
     print("[DarkRP] - Chat Commands: /togglevision, /cyclevision")
     print("[DarkRP] - Admin Command: rp_givevision [player]")
     print("[DarkRP] - Test Command: test_splinter (for admins)")
-    print("[DarkRP] - If items don't appear in F4, try restarting the server")
+    print("[DarkRP] - NOTE: NVGs are NOT purchasable - job abilities only!")
 end)
