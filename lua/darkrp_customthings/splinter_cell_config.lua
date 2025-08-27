@@ -12,9 +12,16 @@ if not DarkRP then
 end
 
 -- Ensure the weapon exists before adding to DarkRP
-timer.Simple(1, function()
+timer.Simple(2, function()
     if not weapons.Get("splinter_cell_vision") then
         print("[WARNING] splinter_cell_vision weapon not found! Make sure the weapon file is loaded.")
+        print("[INFO] Attempting to reload weapon...")
+        -- Force weapon registration
+        if SERVER then
+            include("weapons/splinter_cell_vision.lua")
+        end
+    else
+        print("[SUCCESS] splinter_cell_vision weapon loaded successfully!")
     end
 end)
 
@@ -25,6 +32,20 @@ end)
 -- They are NOT available for purchase through F4 menu or shipments.
 -- Only players with Splinter Cell jobs can use these advanced vision systems.
 -- ============================================================================
+
+-- ============================================================================
+-- CATEGORIES
+-- ============================================================================
+
+-- Create the Special Forces category
+DarkRP.createCategory{
+    name = "Special Forces",
+    categorises = "jobs",
+    startExpanded = true,
+    color = Color(0, 150, 0, 255),
+    canSee = function(ply) return true end,
+    sortOrder = 100,
+}
 
 -- ============================================================================
 -- CUSTOM JOBS
