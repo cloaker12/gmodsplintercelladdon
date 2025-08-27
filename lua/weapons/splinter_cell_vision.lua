@@ -4,6 +4,7 @@ SWEP.PrintName = "Splinter Cell Vision Goggles"
 SWEP.Author = "DarkRP Enhanced"
 SWEP.Instructions = "Press N to toggle vision, T to cycle modes | DarkRP Compatible"
 SWEP.Category = "DarkRP Special"
+SWEP.ClassName = "splinter_cell_vision"
 
 SWEP.Spawnable = true
 SWEP.AdminOnly = false
