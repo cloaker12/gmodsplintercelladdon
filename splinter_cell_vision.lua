@@ -75,6 +75,7 @@ function SWEP:Initialize()
         self.LastPulseTime = 0
         self.PulseAlpha = 0
         self.GrainTexture = surface.GetTextureID("effects/tvscreen_noise002a")
+        self.NightVisionLight = nil
         
         -- Create convars for customization
         CreateClientConVar("sc_vision_strength", "1", true, false, "Vision effect strength", 0.1, 2)
@@ -82,6 +83,7 @@ function SWEP:Initialize()
         CreateClientConVar("sc_energy_recharge", "1", true, false, "Energy recharge rate per second", 0.1, 3)
         CreateClientConVar("sc_sonar_interval", "1.5", true, false, "Sonar pulse interval", 0.5, 5)
         CreateClientConVar("sc_grain_amount", "0.3", true, false, "Night vision grain amount", 0, 1)
+        CreateClientConVar("sc_night_brightness", "1", true, false, "Night vision brightness boost", 0.5, 2)
         
         -- Key bindings
         self:SetupKeyBindings()
@@ -176,6 +178,29 @@ function SWEP:StartVisionEffects()
                 self:DrawSonarHalos()
             end
         end)
+        
+        -- Add light amplification for night vision
+        if self.VisionModes[self.CurrentMode].id == "nightvision" then
+            hook.Add("SetupWorldFog", "SC_NightVisionFog_" .. self:EntIndex(), function()
+                if not IsValid(self) or self:GetOwner() != LocalPlayer() or not self.VisionActive then
+                    hook.Remove("SetupWorldFog", "SC_NightVisionFog_" .. self:EntIndex())
+                    return
+                end
+                
+                -- Override fog for better visibility
+                return true
+            end)
+            
+            hook.Add("SetupSkyboxFog", "SC_NightVisionSkyFog_" .. self:EntIndex(), function()
+                if not IsValid(self) or self:GetOwner() != LocalPlayer() or not self.VisionActive then
+                    hook.Remove("SetupSkyboxFog", "SC_NightVisionSkyFog_" .. self:EntIndex())
+                    return
+                end
+                
+                -- Override skybox fog
+                return true
+            end)
+        end
     end
 end
 
@@ -183,27 +208,32 @@ function SWEP:StopVisionEffects()
     if CLIENT then
         hook.Remove("RenderScreenspaceEffects", "SC_VisionEffects_" .. self:EntIndex())
         hook.Remove("PreDrawHalos", "SC_VisionHalos_" .. self:EntIndex())
+        hook.Remove("SetupWorldFog", "SC_NightVisionFog_" .. self:EntIndex())
+        hook.Remove("SetupSkyboxFog", "SC_NightVisionSkyFog_" .. self:EntIndex())
     end
 end
 
 function SWEP:RenderNightVision(strength)
+    local brightBoost = GetConVar("sc_night_brightness"):GetFloat()
+    
+    -- Enhanced color modification for dark areas and nighttime
     local tab = {
-        ["$pp_colour_addr"] = 0,
-        ["$pp_colour_addg"] = 0.1 * strength,
+        ["$pp_colour_addr"] = 0.05 * strength,  -- Slight red addition for warmth
+        ["$pp_colour_addg"] = 0.2 * strength,   -- Increased green for night vision
         ["$pp_colour_addb"] = 0,
-        ["$pp_colour_brightness"] = 0.2 * strength,
-        ["$pp_colour_contrast"] = 1.2,
-        ["$pp_colour_colour"] = 0.5,
-        ["$pp_colour_mulr"] = 0,
-        ["$pp_colour_mulg"] = 5 * strength,
-        ["$pp_colour_mulb"] = 0
+        ["$pp_colour_brightness"] = 0.6 * strength * brightBoost,  -- Significantly increased brightness with boost
+        ["$pp_colour_contrast"] = 1.4,               -- Higher contrast for clarity
+        ["$pp_colour_colour"] = 0.3,                 -- Reduced color saturation
+        ["$pp_colour_mulr"] = 0.5,
+        ["$pp_colour_mulg"] = 8 * strength * brightBoost,  -- Much stronger green multiplication
+        ["$pp_colour_mulb"] = 0.2
     }
     DrawColorModify(tab)
     
     -- Add grain effect
     local grainAmount = GetConVar("sc_grain_amount"):GetFloat()
     if grainAmount > 0 then
-        surface.SetDrawColor(0, 255, 0, 30 * grainAmount)
+        surface.SetDrawColor(0, 255, 0, 25 * grainAmount)
         surface.SetTexture(self.GrainTexture)
         
         -- Animated grain
@@ -211,8 +241,38 @@ function SWEP:RenderNightVision(strength)
         surface.DrawTexturedRectRotated(ScrW() / 2, ScrH() / 2, ScrW() * 2, ScrH() * 2, offset)
     end
     
-    -- Add subtle bloom
-    DrawBloom(0.65, 2 * strength, 9, 9, 1, 1, 1, 1, 1)
+    -- Enhanced bloom for better visibility
+    DrawBloom(0.75, 3 * strength, 12, 12, 2, 1, 1, 1, 1)
+    
+    -- Add additional brightness boost for extremely dark areas
+    DrawSharpen(0.5, 1.2 * strength)
+    
+    -- Override fog to see through darkness
+    render.FogMode(MATERIAL_FOG_LINEAR)
+    render.FogStart(50)
+    render.FogEnd(10000)
+    render.FogMaxDensity(0.1)
+    render.FogColor(0, 50, 0)
+    
+    -- Additional light amplification layer
+    local lightBoost = render.GetLightColor(LocalPlayer():GetPos())
+    local avgLight = (lightBoost.x + lightBoost.y + lightBoost.z) / 3
+    
+    -- If it's very dark, add extra brightness
+    if avgLight < 0.1 then
+        local extraBrightness = {
+            ["$pp_colour_addr"] = 0.1 * strength * brightBoost,
+            ["$pp_colour_addg"] = 0.3 * strength * brightBoost,
+            ["$pp_colour_addb"] = 0.05 * strength,
+            ["$pp_colour_brightness"] = 0.4 * strength * brightBoost,
+            ["$pp_colour_contrast"] = 1.6,
+            ["$pp_colour_colour"] = 0.2,
+            ["$pp_colour_mulr"] = 1,
+            ["$pp_colour_mulg"] = 12 * strength * brightBoost,
+            ["$pp_colour_mulb"] = 0.5
+        }
+        DrawColorModify(extraBrightness)
+    end
 end
 
 function SWEP:RenderThermalVision(strength)

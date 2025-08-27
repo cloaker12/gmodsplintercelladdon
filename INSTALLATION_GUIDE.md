@@ -47,10 +47,12 @@
 ### Vision Modes
 
 1. **Night Vision**
-   - Green tint with enhanced brightness
+   - Green tint with massively enhanced brightness for dark areas
    - Animated grain effect for realism
-   - Subtle bloom effect
-   - Best for dark environments
+   - Advanced bloom and sharpen effects
+   - Automatic light amplification in extremely dark conditions
+   - Fog override for better long-range visibility
+   - Perfect for nighttime and pitch-black environments
 
 2. **Thermal Vision**
    - Heat signatures displayed in orange/red
@@ -82,6 +84,7 @@
 - `sc_energy_recharge [0.1-3]` - Energy recharge rate per second
 - `sc_sonar_interval [0.5-5]` - Time between sonar pulses
 - `sc_grain_amount [0-1]` - Night vision grain effect intensity
+- `sc_night_brightness [0.5-2]` - Night vision brightness boost for extreme darkness
 
 ### Features
 
