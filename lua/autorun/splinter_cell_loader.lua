@@ -20,6 +20,36 @@ if file.Exists("lua/darkrp_customthings/splinter_abilities.lua", "GAME") then
     print("[AUTORUN] Splinter Cell abilities loaded")
 end
 
+-- Load extended abilities system
+if file.Exists("lua/darkrp_customthings/splinter_abilities_extended.lua", "GAME") then
+    include("darkrp_customthings/splinter_abilities_extended.lua")
+    print("[AUTORUN] Splinter Cell extended abilities loaded")
+end
+
+-- Load advanced HUD system
+if file.Exists("lua/darkrp_customthings/splinter_hud_system.lua", "GAME") then
+    include("darkrp_customthings/splinter_hud_system.lua")
+    print("[AUTORUN] Splinter Cell HUD system loaded")
+end
+
+-- Load networking and team coordination
+if file.Exists("lua/darkrp_customthings/splinter_networking.lua", "GAME") then
+    include("darkrp_customthings/splinter_networking.lua")
+    print("[AUTORUN] Splinter Cell networking system loaded")
+end
+
+-- Load environmental effects system
+if file.Exists("lua/darkrp_customthings/splinter_environmental.lua", "GAME") then
+    include("darkrp_customthings/splinter_environmental.lua")
+    print("[AUTORUN] Splinter Cell environmental system loaded")
+end
+
+-- Load advanced systems module
+if file.Exists("lua/darkrp_customthings/splinter_advanced_systems.lua", "GAME") then
+    include("darkrp_customthings/splinter_advanced_systems.lua")
+    print("[AUTORUN] Splinter Cell advanced systems loaded")
+end
+
 -- Only handle DarkRP-specific loading on server
 if SERVER then
     -- Load chat commands and other functionality
