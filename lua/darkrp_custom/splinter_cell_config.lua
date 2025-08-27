@@ -1,0 +1,197 @@
+-- ============================================================================
+-- DarkRP Configuration for Splinter Cell Vision Goggles
+-- ============================================================================
+-- This file adds the Splinter Cell Vision Goggles to DarkRP
+-- Supports latest splinter_cell_vision.lua weapon with multiple vision modes
+-- ============================================================================
+
+-- Check if DarkRP is loaded
+if not DarkRP then return end
+
+-- ============================================================================
+-- ENTITIES
+-- ============================================================================
+
+-- Create the entity for the F4 menu
+DarkRP.createEntity("Splinter Cell Vision Goggles", {
+    ent = "splinter_cell_vision",
+    model = "models/props_lab/huladoll.mdl", -- Placeholder model - replace with actual NVG model
+    price = 7500,
+    max = 1,
+    cmd = "buysplintervision",
+    allowed = {TEAM_CITIZEN, TEAM_POLICE, TEAM_GANG, TEAM_MOB, TEAM_GUN}
+})
+
+-- Create a shipment for bulk purchase
+DarkRP.createShipment("Splinter Cell Vision Goggles", {
+    model = "models/props_lab/huladoll.mdl",
+    entity = "splinter_cell_vision",
+    price = 67500,
+    amount = 10,
+    separate = true,
+    pricesep = 7500,
+    noship = false,
+    allowed = {TEAM_CITIZEN, TEAM_POLICE, TEAM_GANG, TEAM_MOB, TEAM_GUN}
+})
+
+-- ============================================================================
+-- CUSTOM JOBS
+-- ============================================================================
+
+-- Splinter Cell Operative Job
+DarkRP.createJob("Splinter Cell Operative", {
+    color = Color(0, 100, 0, 255),
+    model = {
+        "models/player/Group01/male_02.mdl",
+        "models/player/Group01/male_04.mdl",
+        "models/player/Group01/male_06.mdl",
+        "models/player/Group01/male_08.mdl",
+        "models/player/Group01/male_09.mdl"
+    },
+    description = [[You are an elite Splinter Cell operative specializing in covert operations.
+    
+    EQUIPMENT:
+    - Advanced Vision Goggles with multiple modes
+    - Night Vision, Thermal Vision, Sonar Vision, and more
+    
+    CONTROLS:
+    - N: Toggle vision modes on/off
+    - T: Cycle through different vision modes
+    
+    VISION MODES:
+    - Night Vision: Enhanced visibility in darkness
+    - Thermal Vision: See heat signatures through walls
+    - Sonar Vision: Detect movement and objects
+    - X-Ray Vision: See through solid objects
+    - Motion Detection: Highlight moving targets
+    - EMP Vision: Detect electronic devices
+    
+    Your mission is to gather intelligence and complete objectives using stealth and advanced technology.]],
+    weapons = {"splinter_cell_vision", "weapon_pistol"},
+    command = "splintercell",
+    max = 3,
+    salary = 75,
+    admin = 0,
+    vote = false,
+    hasLicense = false,
+    candemote = false,
+    category = "Special Forces",
+    PlayerSpawn = function(ply)
+        ply:SetMaxHealth(120)
+        ply:SetHealth(120)
+        ply:SetArmor(50)
+    end
+})
+
+-- Splinter Cell Commander Job (VIP/Donator Job)
+DarkRP.createJob("Splinter Cell Commander", {
+    color = Color(0, 150, 0, 255),
+    model = {
+        "models/player/Group01/male_01.mdl",
+        "models/player/Group01/male_03.mdl",
+        "models/player/Group01/male_05.mdl"
+    },
+    description = [[You are a Splinter Cell Commander leading covert operations.
+    
+    ENHANCED EQUIPMENT:
+    - Military-grade Vision Goggles
+    - Advanced tactical weapons
+    - Leadership privileges
+    
+    SPECIAL ABILITIES:
+    - Can coordinate team operations
+    - Access to restricted areas
+    - Enhanced health and armor
+    
+    Lead your team to victory using superior technology and tactical expertise.]],
+    weapons = {"splinter_cell_vision", "weapon_pistol", "stunstick"},
+    command = "splintercommander",
+    max = 1,
+    salary = 100,
+    admin = 0,
+    vote = false,
+    hasLicense = true,
+    candemote = false,
+    category = "Special Forces",
+    customCheck = function(ply) 
+        -- Add your VIP/donator check here
+        -- return ply:IsVIP() or ply:IsDonator()
+        return true -- Remove this line and add your check
+    end,
+    CustomCheckFailMsg = "You need to be a VIP/Donator to become a Splinter Cell Commander!",
+    PlayerSpawn = function(ply)
+        ply:SetMaxHealth(150)
+        ply:SetHealth(150)
+        ply:SetArmor(75)
+    end
+})
+
+-- ============================================================================
+-- CHAT COMMANDS
+-- ============================================================================
+
+-- Add chat command for vision toggle (backup method)
+hook.Add("PlayerSay", "SplinterCellCommands", function(ply, text, teamChat)
+    if string.lower(text) == "/togglevision" then
+        local weapon = ply:GetActiveWeapon()
+        if IsValid(weapon) and weapon:GetClass() == "splinter_cell_vision" then
+            if weapon.ToggleVision then
+                weapon:ToggleVision()
+                ply:ChatPrint("Vision mode toggled!")
+            end
+        else
+            ply:ChatPrint("You need to have Splinter Cell Vision Goggles equipped!")
+        end
+        return ""
+    elseif string.lower(text) == "/cyclevision" then
+        local weapon = ply:GetActiveWeapon()
+        if IsValid(weapon) and weapon:GetClass() == "splinter_cell_vision" then
+            if weapon.CycleVisionMode then
+                weapon:CycleVisionMode()
+                ply:ChatPrint("Vision mode cycled!")
+            end
+        else
+            ply:ChatPrint("You need to have Splinter Cell Vision Goggles equipped!")
+        end
+        return ""
+    end
+end)
+
+-- ============================================================================
+-- ADMIN COMMANDS
+-- ============================================================================
+
+-- Admin command to give vision goggles
+concommand.Add("rp_givevision", function(ply, cmd, args)
+    if not ply:IsAdmin() then 
+        ply:ChatPrint("You don't have permission to use this command!")
+        return 
+    end
+    
+    local target = ply
+    if args[1] then
+        target = DarkRP.findPlayer(args[1])
+        if not IsValid(target) then
+            ply:ChatPrint("Player not found!")
+            return
+        end
+    end
+    
+    target:Give("splinter_cell_vision")
+    ply:ChatPrint("Gave Splinter Cell Vision Goggles to " .. target:Name())
+    if target != ply then
+        target:ChatPrint("You received Splinter Cell Vision Goggles from " .. ply:Name())
+    end
+end)
+
+-- ============================================================================
+-- CONFIGURATION MESSAGES
+-- ============================================================================
+
+hook.Add("InitPostEntity", "SplinterCellConfigLoaded", function()
+    print("[DarkRP] Splinter Cell Vision Goggles configuration loaded successfully!")
+    print("[DarkRP] - Weapon: splinter_cell_vision")
+    print("[DarkRP] - Jobs: Splinter Cell Operative, Splinter Cell Commander")
+    print("[DarkRP] - Chat Commands: /togglevision, /cyclevision")
+    print("[DarkRP] - Admin Command: rp_givevision [player]")
+end)

@@ -1,0 +1,15 @@
+{
+    "title": "Splinter Cell Vision Goggles - DarkRP Enhanced",
+    "type": "weapon",
+    "tags": [
+        "weapon",
+        "fun",
+        "roleplay",
+        "darkrp"
+    ],
+    "ignore": [
+        "*.git*",
+        "*.md",
+        "*.txt"
+    ]
+}
