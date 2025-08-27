@@ -72,7 +72,11 @@ SWEP.Settings = {
 function SWEP:Initialize()
     self:SetHoldType("normal")
     
-    if CLIENT then
+    if SERVER then
+        -- Initialize server state
+        self:SetNWBool("VisionActive", false)
+        self:SetNWInt("VisionMode", 1)
+    elseif CLIENT then
         self.VisionActive = false
         self.CurrentMode = 1
         self.Energy = self.Settings.maxEnergy
@@ -125,35 +129,63 @@ end
 
 function SWEP:ToggleVision()
     if CLIENT then
-        self.VisionActive = not self.VisionActive
+        -- Send toggle request to server for DarkRP validation
+        net.Start("SC_VisionToggle")
+        net.SendToServer()
+    elseif SERVER then
+        -- Server-side validation for DarkRP
+        local owner = self:GetOwner()
+        if not IsValid(owner) then return end
         
-        if self.VisionActive then
-            surface.PlaySound(self.VisionModes[self.CurrentMode].sound)
-            self:StartVisionEffects()
-        else
-            surface.PlaySound("npc/turret_floor/retract.wav")
-            self:StopVisionEffects()
+        -- Check if player has permission (job-based)
+        if DarkRP and not self:CanUseVision(owner) then
+            owner:ChatPrint("You don't have access to this technology!")
+            return
         end
+        
+        -- Toggle the vision state
+        self:SetNWBool("VisionActive", not self:GetNWBool("VisionActive", false))
+        
+        -- Send state to client
+        net.Start("SC_VisionState")
+        net.WriteBool(self:GetNWBool("VisionActive"))
+        net.WriteInt(self:GetNWInt("VisionMode", 1), 8)
+        net.Send(owner)
     end
 end
 
 function SWEP:CycleMode()
-    if CLIENT and self.VisionActive then
-        local oldMode = self.CurrentMode
-        self.CurrentMode = self.CurrentMode % #self.VisionModes + 1
+    if CLIENT then
+        -- Send mode change request to server
+        net.Start("SC_VisionModeChange")
+        net.SendToServer()
+    elseif SERVER then
+        local owner = self:GetOwner()
+        if not IsValid(owner) then return end
         
-        surface.PlaySound(self.VisionModes[self.CurrentMode].sound)
+        -- Check if vision is active and player has permission
+        if not self:GetNWBool("VisionActive", false) then return end
+        if DarkRP and not self:CanUseVision(owner) then return end
         
-        -- Reset mode-specific variables
-        self.LastPulseTime = CurTime()
-        self.PulseAlpha = 0
+        -- Cycle the mode
+        local currentMode = self:GetNWInt("VisionMode", 1)
+        local newMode = currentMode % #self.VisionModes + 1
+        self:SetNWInt("VisionMode", newMode)
+        
+        -- Send updated state to client
+        net.Start("SC_VisionState")
+        net.WriteBool(self:GetNWBool("VisionActive"))
+        net.WriteInt(newMode, 8)
+        net.Send(owner)
     end
 end
 
 function SWEP:StartVisionEffects()
     if CLIENT then
         hook.Add("RenderScreenspaceEffects", "SC_VisionEffects_" .. self:EntIndex(), function()
-            if not IsValid(self) or self:GetOwner() != LocalPlayer() or not self.VisionActive then
+            -- Check server state for DarkRP compatibility
+            local serverActive = self:GetNWBool("VisionActive", false)
+            if not IsValid(self) or self:GetOwner() != LocalPlayer() or not self.VisionActive or not serverActive then
                 hook.Remove("RenderScreenspaceEffects", "SC_VisionEffects_" .. self:EntIndex())
                 return
             end
@@ -171,7 +203,8 @@ function SWEP:StartVisionEffects()
         end)
         
         hook.Add("PreDrawHalos", "SC_VisionHalos_" .. self:EntIndex(), function()
-            if not IsValid(self) or self:GetOwner() != LocalPlayer() or not self.VisionActive then
+            local serverActive = self:GetNWBool("VisionActive", false)
+            if not IsValid(self) or self:GetOwner() != LocalPlayer() or not self.VisionActive or not serverActive then
                 hook.Remove("PreDrawHalos", "SC_VisionHalos_" .. self:EntIndex())
                 return
             end
@@ -372,19 +405,39 @@ function SWEP:DrawSonarHalos()
 end
 
 function SWEP:Think()
-    if CLIENT and self.VisionActive then
-        -- Update energy
-        local drainRate = GetConVar("sc_energy_drain"):GetFloat()
-        self.Energy = math.max(0, self.Energy - drainRate * FrameTime())
+    if CLIENT then
+        -- Sync with server state
+        local serverActive = self:GetNWBool("VisionActive", false)
+        local serverMode = self:GetNWInt("VisionMode", 1)
         
-        -- Turn off vision if out of energy
-        if self.Energy <= 0 then
-            self:ToggleVision()
+        -- Update local state if server state changed
+        if self.VisionActive ~= serverActive then
+            self.VisionActive = serverActive
+            if serverActive then
+                self:StartVisionEffects()
+            else
+                self:StopVisionEffects()
+            end
         end
-    elseif CLIENT and not self.VisionActive and self.Energy < self.Settings.maxEnergy then
-        -- Recharge energy when vision is off
-        local rechargeRate = GetConVar("sc_energy_recharge"):GetFloat()
-        self.Energy = math.min(self.Settings.maxEnergy, self.Energy + rechargeRate * FrameTime())
+        
+        if self.CurrentMode ~= serverMode then
+            self.CurrentMode = serverMode
+        end
+        
+        if self.VisionActive then
+            -- Update energy
+            local drainRate = GetConVar("sc_energy_drain"):GetFloat()
+            self.Energy = math.max(0, self.Energy - drainRate * FrameTime())
+            
+            -- Turn off vision if out of energy
+            if self.Energy <= 0 then
+                self:ToggleVision()
+            end
+        elseif not self.VisionActive and self.Energy < self.Settings.maxEnergy then
+            -- Recharge energy when vision is off
+            local rechargeRate = GetConVar("sc_energy_recharge"):GetFloat()
+            self.Energy = math.min(self.Settings.maxEnergy, self.Energy + rechargeRate * FrameTime())
+        end
     end
 end
 
@@ -452,6 +505,26 @@ end
 function SWEP:Deploy()
     if CLIENT then
         self:SetupKeyBindings()
+        -- Sync with server state on deploy
+        timer.Simple(0.1, function()
+            if IsValid(self) then
+                local serverActive = self:GetNWBool("VisionActive", false)
+                local serverMode = self:GetNWInt("VisionMode", 1)
+                
+                self.VisionActive = serverActive
+                self.CurrentMode = serverMode
+                
+                if serverActive then
+                    self:StartVisionEffects()
+                end
+            end
+        end)
+    elseif SERVER then
+        -- Ensure server state is clean on deploy
+        if not self:GetNWBool("VisionActive", false) then
+            self:SetNWBool("VisionActive", false)
+            self:SetNWInt("VisionMode", 1)
+        end
     end
     return true
 end
@@ -460,6 +533,12 @@ function SWEP:Holster()
     if CLIENT then
         self:StopVisionEffects()
         hook.Remove("Think", "SC_VisionKeyCheck_" .. self:EntIndex())
+        self.VisionActive = false
+    elseif SERVER then
+        -- Turn off vision when holstering for DarkRP compatibility
+        if self:GetNWBool("VisionActive", false) then
+            self:SetNWBool("VisionActive", false)
+        end
     end
     return true
 end
@@ -482,6 +561,8 @@ end
 -- Network the active state for other players to see effects
 if SERVER then
     util.AddNetworkString("SC_VisionState")
+    util.AddNetworkString("SC_VisionToggle")
+    util.AddNetworkString("SC_VisionModeChange")
 end
 
 -- Prevent the weapon from being dropped
@@ -491,4 +572,63 @@ end
 
 function SWEP:CanSecondaryAttack()
     return false
+end
+
+-- DarkRP Permission Check
+function SWEP:CanUseVision(ply)
+    if not DarkRP then return true end
+    
+    -- Check if player is in a job that has this weapon
+    local jobTable = RPExtraTeams[ply:Team()]
+    if jobTable and jobTable.weapons then
+        for _, weapon in pairs(jobTable.weapons) do
+            if weapon == "splinter_cell_vision" then
+                return true
+            end
+        end
+    end
+    
+    -- Allow admins as fallback
+    return ply:IsAdmin()
+end
+
+-- Network Handlers
+if SERVER then
+    -- Handle vision toggle requests
+    net.Receive("SC_VisionToggle", function(len, ply)
+        local weapon = ply:GetActiveWeapon()
+        if IsValid(weapon) and weapon:GetClass() == "splinter_cell_vision" then
+            weapon:ToggleVision()
+        end
+    end)
+    
+    -- Handle mode change requests  
+    net.Receive("SC_VisionModeChange", function(len, ply)
+        local weapon = ply:GetActiveWeapon()
+        if IsValid(weapon) and weapon:GetClass() == "splinter_cell_vision" then
+            weapon:CycleMode()
+        end
+    end)
+elseif CLIENT then
+    -- Handle vision state updates from server
+    net.Receive("SC_VisionState", function()
+        local isActive = net.ReadBool()
+        local mode = net.ReadInt(8)
+        
+        local ply = LocalPlayer()
+        local weapon = ply:GetActiveWeapon()
+        
+        if IsValid(weapon) and weapon:GetClass() == "splinter_cell_vision" then
+            weapon.VisionActive = isActive
+            weapon.CurrentMode = mode
+            
+            if isActive then
+                surface.PlaySound(weapon.VisionModes[mode].sound)
+                weapon:StartVisionEffects()
+            else
+                surface.PlaySound("npc/turret_floor/retract.wav")
+                weapon:StopVisionEffects()
+            end
+        end
+    end)
 end

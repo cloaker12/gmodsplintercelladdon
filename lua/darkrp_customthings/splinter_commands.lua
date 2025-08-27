@@ -15,7 +15,7 @@ hook.Add("PlayerSay", "SplinterCellCommands", function(ply, text, teamChat)
         if IsValid(weapon) and weapon:GetClass() == "splinter_cell_vision" then
             if weapon.ToggleVision then
                 weapon:ToggleVision()
-                ply:ChatPrint("Vision mode toggled!")
+                ply:ChatPrint("Vision mode toggle requested!")
             end
         else
             ply:ChatPrint("You need to have Splinter Cell Vision Goggles equipped!")
@@ -24,9 +24,9 @@ hook.Add("PlayerSay", "SplinterCellCommands", function(ply, text, teamChat)
     elseif string.lower(text) == "/cyclevision" then
         local weapon = ply:GetActiveWeapon()
         if IsValid(weapon) and weapon:GetClass() == "splinter_cell_vision" then
-            if weapon.CycleVisionMode then
-                weapon:CycleVisionMode()
-                ply:ChatPrint("Vision mode cycled!")
+            if weapon.CycleMode then
+                weapon:CycleMode()
+                ply:ChatPrint("Vision mode cycle requested!")
             end
         else
             ply:ChatPrint("You need to have Splinter Cell Vision Goggles equipped!")
@@ -81,9 +81,66 @@ end)
 -- LOADING CONFIRMATION
 -- ============================================================================
 
+-- DarkRP Integration Hooks
+hook.Add("playerBoughtCustomJob", "SplinterCellJobHandler", function(ply, jobTable)
+    if jobTable.weapons then
+        for _, weapon in pairs(jobTable.weapons) do
+            if weapon == "splinter_cell_vision" then
+                timer.Simple(0.5, function()
+                    if IsValid(ply) then
+                        ply:Give("splinter_cell_vision")
+                        ply:ChatPrint("You have received advanced vision technology!")
+                        ply:ChatPrint("Press N to toggle vision modes, T to cycle between modes")
+                    end
+                end)
+                break
+            end
+        end
+    end
+end)
+
+-- Handle job changes/disconnects to clean up vision state
+hook.Add("OnPlayerChangedTeam", "SplinterCellTeamChange", function(ply, before, after)
+    -- Check if player no longer has access to splinter cell vision
+    local oldJob = RPExtraTeams[before]
+    local newJob = RPExtraTeams[after]
+    
+    local hadAccess = false
+    local hasAccess = false
+    
+    if oldJob and oldJob.weapons then
+        for _, weapon in pairs(oldJob.weapons) do
+            if weapon == "splinter_cell_vision" then
+                hadAccess = true
+                break
+            end
+        end
+    end
+    
+    if newJob and newJob.weapons then
+        for _, weapon in pairs(newJob.weapons) do
+            if weapon == "splinter_cell_vision" then
+                hasAccess = true
+                break
+            end
+        end
+    end
+    
+    -- Remove weapon if no longer has access
+    if hadAccess and not hasAccess then
+        timer.Simple(0.1, function()
+            if IsValid(ply) then
+                ply:StripWeapon("splinter_cell_vision")
+                ply:ChatPrint("Vision technology access revoked.")
+            end
+        end)
+    end
+end)
+
 hook.Add("InitPostEntity", "SplinterCellCommandsLoaded", function()
     print("[DarkRP] Splinter Cell commands loaded successfully!")
     print("[DarkRP] - Chat Commands: /togglevision, /cyclevision")
     print("[DarkRP] - Admin Command: rp_givevision [player]")
     print("[DarkRP] - Test Command: test_splinter (for admins)")
+    print("[DarkRP] - Job integration enabled for automatic weapon distribution")
 end)
