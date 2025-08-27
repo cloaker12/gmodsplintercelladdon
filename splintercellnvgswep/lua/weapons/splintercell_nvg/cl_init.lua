@@ -64,7 +64,7 @@ local function EnhanceScreenBrightness()
     local ply = LocalPlayer()
     local weapon = ply:GetActiveWeapon()
     
-    if not IsValid(weapon) or weapon:GetClass() ~= "splintercell_nvg" or not weapon.GogglesEnabled then
+    if not IsValid(weapon) or weapon:GetClass() ~= "splintercell_nvg" or not weapon.GogglesActive then
         return
     end
     
@@ -73,11 +73,11 @@ local function EnhanceScreenBrightness()
         local screenW, screenH = ScrW(), ScrH()
         
         -- Brightness enhancement overlay
-        surface.SetDrawColor(0, 255, 0, 15 * weapon.Intensity)
+        surface.SetDrawColor(0, 255, 0, 15 * (weapon.Settings.visionStrength or 1))
         surface.DrawRect(0, 0, screenW, screenH)
         
         -- Additional gamma correction for very dark areas
-        surface.SetDrawColor(0, 180, 0, 10 * weapon.Intensity)
+        surface.SetDrawColor(0, 180, 0, 10 * (weapon.Settings.visionStrength or 1))
         surface.DrawRect(0, 0, screenW, screenH)
     end
 end
@@ -90,10 +90,12 @@ hook.Add("HUDPaint", "SplinterCell_Brightness_Enhancement", EnhanceScreenBrightn
 
 -- Receive goggles state from server
 net.Receive("SplinterCell_Goggles_State", function()
-    local enabled = net.ReadBool()
+    local active = net.ReadBool()
+    local mode = net.ReadInt(8)
     local weapon = LocalPlayer():GetActiveWeapon()
     if IsValid(weapon) and weapon:GetClass() == "splintercell_nvg" then
-        weapon.GogglesEnabled = enabled
+        weapon.GogglesActive = active
+        weapon.CurrentMode = mode
     end
 end)
 
@@ -153,35 +155,48 @@ end)
 -- ============================================================================
 
 function SWEP:RenderNightVision(screenW, screenH, mode)
-    -- Night vision green tint with grain effect
+    -- Enhanced night vision with much better brightness and visibility
     local strength = self.Settings.visionStrength * mode.overlayStrength
 
-    -- Base green overlay
-    surface.SetDrawColor(mode.color.r, mode.color.g, mode.color.b, 60 * strength)
+    -- Base green overlay with reduced opacity for better visibility
+    surface.SetDrawColor(mode.color.r, mode.color.g, mode.color.b, 30 * strength)
     surface.DrawRect(0, 0, screenW, screenH)
 
-    -- Brightness enhancement layers
-    for i = 1, 3 do
-        local alpha = (40 - i * 8) * strength * mode.brightnessBoost
+    -- Multiple brightness enhancement layers for much better visibility
+    for i = 1, 5 do
+        local alpha = (50 - i * 6) * strength * mode.brightnessBoost
         surface.SetDrawColor(0, 255, 0, alpha)
         surface.DrawRect(0, 0, screenW, screenH)
     end
 
-    -- Grain effect
+    -- Additional brightness boost for very dark environments
+    surface.SetDrawColor(120, 255, 120, 25 * strength)
+    surface.DrawRect(0, 0, screenW, screenH)
+
+    -- Enhanced gamma correction overlay
+    surface.SetDrawColor(180, 255, 180, 15 * strength)
+    surface.DrawRect(0, 0, screenW, screenH)
+
+    -- Grain effect (reduced for better clarity)
     if self.Settings.nightVisionGrain > 0 then
-        surface.SetDrawColor(0, 255, 0, 15 * strength * self.Settings.nightVisionGrain)
-        for i = 1, 200 do
+        surface.SetDrawColor(0, 255, 0, 8 * strength * self.Settings.nightVisionGrain)
+        for i = 1, 150 do
             local x = math.random(0, screenW)
             local y = math.random(0, screenH)
             surface.DrawRect(x, y, 1, 1)
         end
     end
 
-    -- Scan lines effect
-    surface.SetDrawColor(0, 255, 0, 30 * strength)
-    for i = 0, screenH, 3 do
+    -- Subtle scan lines effect (less intrusive)
+    surface.SetDrawColor(0, 255, 0, 20 * strength)
+    for i = 0, screenH, 4 do
         surface.DrawLine(0, i, screenW, i)
     end
+
+    -- Center enhancement for better focus
+    local centerSize = math.min(screenW, screenH) * 0.3
+    surface.SetDrawColor(50, 255, 50, 10 * strength)
+    surface.DrawRect(screenW/2 - centerSize/2, screenH/2 - centerSize/2, centerSize, centerSize)
 end
 
 function SWEP:RenderThermalVision(screenW, screenH, mode)
@@ -205,18 +220,12 @@ function SWEP:RenderThermalVision(screenW, screenH, mode)
         if self:IsThermalDetectable(ent) then
             local screenPos = ent:GetPos():ToScreen()
             if screenPos.visible then
-                -- Enhanced line-of-sight check - cannot see through walls
-                local trace = util.TraceLine({
-                    start = LocalPlayer():EyePos(),
-                    endpos = ent:GetPos() + Vector(0, 0, 40), -- Check center mass
-                    filter = {LocalPlayer(), ent},
-                    mask = MASK_SOLID + MASK_OPAQUE
-                })
-
-                -- Only show if there's clear line of sight
-                if trace.Entity == ent or trace.Entity == nil then
-                    local distance = LocalPlayer():GetPos():Distance(ent:GetPos())
-                    local maxRange = 600 -- Maximum thermal detection range
+                -- Thermal vision can see through walls (like real thermal imaging)
+                -- Only check distance for thermal detection range
+                local distance = LocalPlayer():GetPos():Distance(ent:GetPos())
+                local maxRange = 800 -- Maximum thermal detection range
+                
+                if distance <= maxRange then
                     local intensity = math.max(0, 1 - (distance / maxRange))
                     local baseSize = 30 -- Base size for thermal signatures
 
@@ -433,6 +442,7 @@ function SWEP:DrawModeIndicator()
             local npcCount = 0
             local playerCount = 0
             local totalDetectable = 0
+            local visibleDetectable = 0
 
             for _, ent in pairs(entities) do
                 if ent:IsPlayer() and ent ~= LocalPlayer() then
@@ -443,12 +453,19 @@ function SWEP:DrawModeIndicator()
 
                 if self:IsThermalDetectable(ent) then
                     totalDetectable = totalDetectable + 1
+                    local screenPos = ent:GetPos():ToScreen()
+                    if screenPos.visible then
+                        local distance = LocalPlayer():GetPos():Distance(ent:GetPos())
+                        if distance <= 800 then -- Within thermal range
+                            visibleDetectable = visibleDetectable + 1
+                        end
+                    end
                 end
             end
 
             -- Display entity counts
-            local debugText = string.format("NPCs: %d | Players: %d | Detectable: %d",
-                                          npcCount, playerCount, totalDetectable)
+            local debugText = string.format("NPCs: %d | Players: %d | Detectable: %d | Visible: %d",
+                                          npcCount, playerCount, totalDetectable, visibleDetectable)
             draw.SimpleText(debugText, "DermaDefault", screenW / 2, 110,
                           Color(200, 200, 200, 150), TEXT_ALIGN_CENTER)
 
@@ -553,6 +570,93 @@ function SWEP:DrawCrosshair()
 
     surface.SetDrawColor(self.Settings.hudColor)
     surface.DrawRect(centerX - 1, centerY - 1, 2, 2)
+end
+
+-- ============================================================================
+-- DETECTION HELPER FUNCTIONS (CLIENT)
+-- ============================================================================
+
+function SWEP:IsThermalDetectable(ent)
+    if not IsValid(ent) or ent == LocalPlayer() then return false end
+
+    -- Detect living entities (players and NPCs) - highest priority
+    if ent:IsPlayer() or ent:IsNPC() then
+        return true
+    end
+
+    -- Detect NextBot NPCs (different from regular NPCs)
+    if ent:GetClass() == "npc_*" or ent:GetClass():find("nextbot") then
+        return true
+    end
+
+    -- Detect weapons
+    if ent:GetClass():find("weapon_") then
+        return true
+    end
+
+    -- Detect vehicles (engines generate heat)
+    if ent:IsVehicle() then
+        return true
+    end
+
+    -- Detect physics props (can have heat if recently interacted with)
+    if ent:GetClass() == "prop_physics" and ent:GetVelocity():Length() > 50 then
+        return true
+    end
+
+    -- Detect explosive entities
+    if ent:GetClass():find("grenade") or ent:GetClass():find("explosive") then
+        return true
+    end
+
+    -- Detect recently fired weapons or hot barrels
+    if ent:GetClass():find("prop_physics") and ent:GetModel() and (
+        ent:GetModel():find("gun") or
+        ent:GetModel():find("rifle") or
+        ent:GetModel():find("pistol") or
+        ent:GetModel():find("shotgun")
+    ) then
+        return true
+    end
+
+    -- Detect other potential heat sources
+    if ent:GetClass():find("prop_vehicle") then
+        return true
+    end
+
+    return false
+end
+
+function SWEP:IsSonarDetectable(ent)
+    if not IsValid(ent) or ent == LocalPlayer() then return false end
+
+    -- Enhanced detection criteria for sonar - detects through walls
+    if ent:IsPlayer() then
+        return true -- Always detect other players
+    elseif ent:IsNPC() then
+        return true -- Always detect NPCs
+    elseif ent:GetClass():find("weapon_") then
+        return true -- Detect weapons
+    elseif ent:IsVehicle() then
+        return true -- Detect vehicles
+    elseif ent:GetClass():find("prop_physics") then
+        -- Detect physics props of reasonable size
+        local mins, maxs = ent:GetCollisionBounds()
+        local size = (maxs - mins):Length()
+        return size > 30 -- Lower threshold for more detections
+    elseif ent:GetClass():find("func_door") or ent:GetClass():find("prop_door") then
+        return true -- Detect doors
+    elseif ent:GetClass():find("npc_") then
+        return true -- Detect any NPC type
+    elseif ent:GetClass():find("nextbot") then
+        return true -- Detect NextBot NPCs
+    elseif ent:GetClass():find("sent_") then
+        return true -- Detect SENTs (scripted entities)
+    elseif ent:GetClass():find("grenade") or ent:GetClass():find("explosive") then
+        return true -- Detect explosives
+    end
+
+    return false
 end
 
 function SWEP:DrawSonarDetections()
