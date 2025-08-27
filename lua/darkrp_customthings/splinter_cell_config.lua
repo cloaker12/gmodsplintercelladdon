@@ -14,12 +14,8 @@ end
 -- Ensure the weapon exists before adding to DarkRP
 timer.Simple(2, function()
     if not weapons.Get("splinter_cell_vision") then
-        print("[WARNING] splinter_cell_vision weapon not found! Make sure the weapon file is loaded.")
-        print("[INFO] Attempting to reload weapon...")
-        -- Force weapon registration
-        if SERVER then
-            include("weapons/splinter_cell_vision.lua")
-        end
+        print("[WARNING] splinter_cell_vision weapon not found! Make sure the weapon file is properly placed in lua/weapons/")
+        print("[INFO] The weapon should load automatically through GMod's weapon system.")
     else
         print("[SUCCESS] splinter_cell_vision weapon loaded successfully!")
     end

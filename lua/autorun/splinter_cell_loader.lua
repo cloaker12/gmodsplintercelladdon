@@ -9,10 +9,9 @@ if SERVER then
     -- Print loading message
     print("[AUTORUN] Loading Splinter Cell Vision Goggles...")
     
-    -- Ensure weapon is loaded first
+    -- Check if weapon file exists (don't include directly - let GMod's weapon system handle it)
     if file.Exists("lua/weapons/splinter_cell_vision.lua", "GAME") then
-        include("weapons/splinter_cell_vision.lua")
-        print("[AUTORUN] Weapon file loaded: splinter_cell_vision.lua")
+        print("[AUTORUN] Weapon file found: splinter_cell_vision.lua")
     else
         print("[ERROR] Weapon file not found: weapons/splinter_cell_vision.lua")
     end
