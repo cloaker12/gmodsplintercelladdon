@@ -1,0 +1,14 @@
+{
+    "title": "Splinter Cell Goggles",
+    "type": "weapon",
+    "tags": ["fun", "realism", "roleplay"],
+    "ignore": [
+        "*.psd",
+        "*.vcproj",
+        "*.vcproj.filters",
+        "*.svn*",
+        "*.git*",
+        "*.DS_Store"
+    ],
+    "description": "A tactical night vision system with multiple vision modes including Night Vision, Thermal, and Sonar. Features a realistic battery system, tactical HUD overlay, and full DarkRP integration."
+}
