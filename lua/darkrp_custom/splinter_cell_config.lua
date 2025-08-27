@@ -6,33 +6,91 @@
 -- ============================================================================
 
 -- Check if DarkRP is loaded
-if not DarkRP then return end
+if not DarkRP then 
+    print("[ERROR] DarkRP not detected! Splinter Cell Vision Goggles config will not load.")
+    return 
+end
+
+-- Ensure the weapon exists before adding to DarkRP
+timer.Simple(1, function()
+    if not weapons.Get("splinter_cell_vision") then
+        print("[WARNING] splinter_cell_vision weapon not found! Make sure the weapon file is loaded.")
+    end
+end)
 
 -- ============================================================================
 -- ENTITIES
 -- ============================================================================
 
--- Create the entity for the F4 menu
-DarkRP.createEntity("Splinter Cell Vision Goggles", {
-    ent = "splinter_cell_vision",
-    model = "models/props_lab/huladoll.mdl", -- Placeholder model - replace with actual NVG model
-    price = 7500,
-    max = 1,
-    cmd = "buysplintervision",
-    allowed = {TEAM_CITIZEN, TEAM_POLICE, TEAM_GANG, TEAM_MOB, TEAM_GUN}
-})
+-- Get available teams (fallback to TEAM_CITIZEN if others don't exist)
+local allowedTeams = {}
+if TEAM_CITIZEN then table.insert(allowedTeams, TEAM_CITIZEN) end
+if TEAM_POLICE then table.insert(allowedTeams, TEAM_POLICE) end
+if TEAM_GANG then table.insert(allowedTeams, TEAM_GANG) end
+if TEAM_MOB then table.insert(allowedTeams, TEAM_MOB) end
 
--- Create a shipment for bulk purchase
-DarkRP.createShipment("Splinter Cell Vision Goggles", {
-    model = "models/props_lab/huladoll.mdl",
-    entity = "splinter_cell_vision",
-    price = 67500,
-    amount = 10,
-    separate = true,
-    pricesep = 7500,
-    noship = false,
-    allowed = {TEAM_CITIZEN, TEAM_POLICE, TEAM_GANG, TEAM_MOB, TEAM_GUN}
-})
+-- Ensure we have at least one team
+if #allowedTeams == 0 then
+    allowedTeams = {TEAM_CITIZEN}
+end
+
+-- Multiple attempts to create entity with different timing
+local function CreateSplinterEntity()
+    if DarkRP and DarkRP.createEntity then
+        local success, err = pcall(function()
+            -- Create the entity for the F4 menu
+            DarkRP.createEntity("Splinter Cell Vision Goggles", {
+                ent = "splinter_cell_vision",
+                model = "models/weapons/w_pistol.mdl", -- Using default pistol model as placeholder
+                price = 7500,
+                max = 1,
+                cmd = "buysplintervision",
+                allowed = allowedTeams
+            })
+        end)
+        
+        if success then
+            print("[DarkRP] Splinter Cell Vision Goggles entity created successfully!")
+            return true
+        else
+            print("[ERROR] Failed to create DarkRP entity: " .. tostring(err))
+            return false
+        end
+    else
+        print("[ERROR] DarkRP.createEntity not available")
+        return false
+    end
+end
+
+-- Try creating immediately
+if not CreateSplinterEntity() then
+    -- Try again after 2 seconds
+    timer.Simple(2, function()
+        if not CreateSplinterEntity() then
+            -- Final attempt after 5 seconds
+            timer.Simple(3, CreateSplinterEntity)
+        end
+    end)
+end
+
+-- Create a shipment for bulk purchase (also delayed)
+timer.Simple(2.5, function()
+    if DarkRP and DarkRP.createShipment then
+        DarkRP.createShipment("Splinter Cell Vision Goggles", {
+            model = "models/weapons/w_pistol.mdl",
+            entity = "splinter_cell_vision",
+            price = 67500,
+            amount = 10,
+            separate = true,
+            pricesep = 7500,
+            noship = false,
+            allowed = allowedTeams
+        })
+        print("[DarkRP] Splinter Cell Vision Goggles shipment created successfully!")
+    else
+        print("[ERROR] Could not create DarkRP shipment for Splinter Cell Vision Goggles")
+    end
+end)
 
 -- ============================================================================
 -- CUSTOM JOBS
@@ -188,10 +246,27 @@ end)
 -- CONFIGURATION MESSAGES
 -- ============================================================================
 
+-- Test command to check if addon is working
+concommand.Add("test_splinter", function(ply)
+    if IsValid(ply) then
+        ply:ChatPrint("=== Splinter Cell Addon Status ===")
+        ply:ChatPrint("DarkRP Loaded: " .. tostring(DarkRP ~= nil))
+        ply:ChatPrint("Weapon Exists: " .. tostring(weapons.Get("splinter_cell_vision") ~= nil))
+        
+        -- Try giving the weapon directly
+        if ply:IsAdmin() then
+            ply:Give("splinter_cell_vision")
+            ply:ChatPrint("Weapon given directly (admin only)")
+        end
+    end
+end)
+
 hook.Add("InitPostEntity", "SplinterCellConfigLoaded", function()
     print("[DarkRP] Splinter Cell Vision Goggles configuration loaded successfully!")
     print("[DarkRP] - Weapon: splinter_cell_vision")
     print("[DarkRP] - Jobs: Splinter Cell Operative, Splinter Cell Commander")
     print("[DarkRP] - Chat Commands: /togglevision, /cyclevision")
     print("[DarkRP] - Admin Command: rp_givevision [player]")
+    print("[DarkRP] - Test Command: test_splinter (for admins)")
+    print("[DarkRP] - If items don't appear in F4, try restarting the server")
 end)
