@@ -34,26 +34,23 @@ TEAM_SPLINTERCELL = DarkRP.createJob("Splinter Cell Operative", {
     },
     description = [[You are an elite Splinter Cell operative specializing in covert operations.
     
-    *** EXCLUSIVE JOB-ONLY EQUIPMENT ***
-    - Advanced Vision Goggles with multiple modes (NOT PURCHASABLE)
+    *** EXCLUSIVE JOB ABILITIES ***
+    - Advanced Vision Technology built into your equipment (JOB ABILITY)
     - This cutting-edge technology is ONLY available to trained operatives
-    - Night Vision, Thermal Vision, Sonar Vision, and more
+    - Night Vision, Thermal Vision, Sonar Vision capabilities
     
     CONTROLS:
     - N: Toggle vision modes on/off
     - T: Cycle through different vision modes
     
     VISION MODES:
-    - Night Vision: Enhanced visibility in darkness
-    - Thermal Vision: See heat signatures through walls
-    - Sonar Vision: Detect movement and objects
-    - X-Ray Vision: See through solid objects
-    - Motion Detection: Highlight moving targets
-    - EMP Vision: Detect electronic devices
+    - Night Vision: Enhanced visibility in darkness with green overlay
+    - Thermal Vision: See heat signatures of living beings
+    - Sonar Vision: Detect movement with pulse-based scanning
     
     Your mission is to gather intelligence and complete objectives using stealth and advanced technology.
-    Remember: Your vision technology is classified and cannot be obtained by civilians!]],
-    weapons = {"splinter_cell_vision", "weapon_pistol"},
+    Remember: Your vision abilities are classified and automatically activated when you become an operative!]],
+    weapons = {"weapon_pistol"},
     command = "splintercell",
     max = 3,
     salary = 75,
@@ -79,21 +76,22 @@ TEAM_SPLINTERCOMMANDER = DarkRP.createJob("Splinter Cell Commander", {
     },
     description = [[You are a Splinter Cell Commander leading covert operations.
     
-    *** EXCLUSIVE MILITARY-GRADE EQUIPMENT ***
-    - Military-grade Vision Goggles (CLASSIFIED TECHNOLOGY)
+    *** EXCLUSIVE COMMAND ABILITIES ***
+    - Military-grade Vision Technology (CLASSIFIED JOB ABILITY)
     - Advanced tactical weapons
     - Leadership privileges
     - This technology is RESTRICTED to command personnel only
     
     SPECIAL ABILITIES:
+    - Advanced Vision System with all modes
     - Can coordinate team operations
     - Access to restricted areas
     - Enhanced health and armor
-    - Command-level vision system access
+    - Command-level tactical capabilities
     
     Lead your team to victory using superior technology and tactical expertise.
-    Your equipment represents the pinnacle of military technology - unavailable to civilians!]],
-    weapons = {"splinter_cell_vision", "weapon_pistol", "stunstick"},
+    Your abilities represent the pinnacle of military technology - unavailable to civilians!]],
+    weapons = {"weapon_pistol", "stunstick"},
     command = "splintercommander",
     max = 1,
     salary = 100,
